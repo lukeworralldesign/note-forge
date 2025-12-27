@@ -48,6 +48,7 @@ const TheForge: React.FC<TheForgeProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Intercept Enter (without Shift) to save, matching "New Note" behavior
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
@@ -58,12 +59,23 @@ const TheForge: React.FC<TheForgeProps> = ({
   };
 
   const handleSubmit = () => {
-    if (!content.trim()) return;
-    onSave(content);
-    if (!isEditing) {
-        setContent('');
+    const trimmedContent = content.trim();
+    if (!trimmedContent) return;
+    
+    // Call the parent save handler
+    onSave(trimmedContent);
+    
+    if (isEditing) {
+      // For edit mode, we want to "close" the interaction
+      // Blur the textarea to dismiss mobile keyboards and close the focus state
+      textareaRef.current?.blur();
+      // App.tsx handles setEditingNoteId(null) which switches isEditing to false
+    } else {
+      // Clear local state immediately for instant feedback, matching "New Note" behavior
+      setContent('');
+      // Maintain focus for rapid-fire input
+      textareaRef.current?.focus();
     }
-    textareaRef.current?.focus();
   };
 
   const ringColor = isEditing ? 'ring-[#FFB74D]' : theme.focusRing;
@@ -89,7 +101,7 @@ const TheForge: React.FC<TheForgeProps> = ({
           onFocus={handleFocus}
           onBlur={handleBlur}
           placeholder={isEditing ? "Modifying entry..." : "New note..."}
-          enterKeyHint="done"
+          enterKeyHint="send"
           className="w-full h-48 md:h-56 bg-transparent p-6 text-xl md:text-2xl text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none resize-none leading-relaxed"
         />
 

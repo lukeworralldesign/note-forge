@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Note, ThemeColors } from '../types';
+import { Note, ThemeColors, getCategoryStyle } from '../types';
 import { reformatNoteContent } from '../services/geminiService';
 
 interface NoteCardProps {
@@ -93,26 +93,17 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     }
   };
 
-  const getTheme = (cat: string) => {
-    switch (cat.toLowerCase()) {
-      case 'writing': return 'bg-[#004A77] text-[#C2E7FF]';
-      case 'shopping': return 'bg-[#0F5223] text-[#C4EED0]';
-      case 'tech': return 'bg-[#4A4458] text-[#E8DEF8]';
-      case 'ideas': return 'bg-[#4F378B] text-[#EADDFF]';
-      case 'character': return 'bg-[#633B06] text-[#FFDDB3]';
-      case 'lore': return 'bg-[#004D40] text-[#B2DFDB]';
-      default: return 'bg-[#333537] text-[#E3E2E6]';
-    }
-  };
-
-  const badgeTheme = getTheme(note.category);
+  const style = getCategoryStyle(note.category);
 
   return (
     <div className="masonry-item group relative">
       <div className={`${theme.key === 'pro' ? 'bg-[#1E2228]' : 'bg-[#22241B]'} rounded-[1.5rem] p-5 border ${theme.surfaceBorder} overflow-hidden transition-all hover:bg-opacity-80 hover:shadow-xl hover:shadow-black/20 duration-300`}>
         
         <div className="flex justify-between items-start mb-4">
-          <span className={`px-3 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase ${badgeTheme}`}>
+          <span 
+            className="px-3 py-1 rounded-lg text-[10px] font-black tracking-widest uppercase shadow-sm"
+            style={{ backgroundColor: style.bg, color: style.text }}
+          >
             {note.category}
           </span>
           
@@ -149,7 +140,7 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
                 }`}
                 title="Reformat with Gemini"
             >
-                <span className={`material-symbols-rounded text-[20px] ${isReformatting ? 'animate-spin' : ''}`}>auto_awesome</span>
+                <span className="material-symbols-rounded text-[20px]">auto_awesome</span>
             </button>
 
             <button 

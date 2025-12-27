@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Note, ModelTier, ThemeColors } from './types';
+import { Note, ModelTier, ThemeColors, getCategoryStyle } from './types';
 import { setModelTier as setServiceTier, getLocalEmbedding, initLocalEmbedder } from './services/geminiService';
 import TheForge from './components/TheForge';
 import NoteCard from './components/NoteCard';
@@ -44,6 +44,7 @@ const App: React.FC = () => {
   const [isIndexing, setIsIndexing] = useState(false);
   const [isReloadingEmbeddings, setIsReloadingEmbeddings] = useState(false);
   const [reloadProgress, setReloadProgress] = useState<{ current: number, total: number } | null>(null);
+  const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
 
   // Initialize Orama and Neural Model
   useEffect(() => {
@@ -184,6 +185,11 @@ const App: React.FC = () => {
       const newUniqueNotes = importedNotes.filter(n => !existingIds.has(n.id));
       return [...newUniqueNotes, ...prev];
     });
+  };
+
+  const deleteNote = (id: string) => {
+    setNotes(prev => prev.filter(n => n.id !== id));
+    setNoteToDelete(null);
   };
 
   useEffect(() => {
@@ -362,26 +368,70 @@ const App: React.FC = () => {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-24 mt-4">
-              {notes.map((note, index) => (
-                <div 
-                  key={note.id} 
-                  onClick={() => scrollToNote(note.id)} 
-                  className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:bg-white/10 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} 
-                  style={{ animation: `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` }}
-                >
-                  <div className="flex justify-between items-start flex-shrink-0 relative z-10">
-                    <span className={`text-[9px] uppercase font-black tracking-[0.1em] ${theme.primaryText} truncate opacity-50 group-hover:opacity-100 transition-opacity`}>{note.category}</span>
+              {notes.map((note, index) => {
+                const style = getCategoryStyle(note.category);
+                return (
+                  <div 
+                    key={note.id} 
+                    onClick={() => scrollToNote(note.id)} 
+                    className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} 
+                    style={{ animation: `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` }}
+                  >
+                    <div className="flex justify-between items-center flex-shrink-0 relative z-10">
+                      <span 
+                        className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm"
+                        style={{ backgroundColor: style.bg, color: style.text }}
+                      >
+                        {note.category}
+                      </span>
+                      <button 
+                          onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }}
+                          className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"
+                      >
+                          <span className="material-symbols-rounded text-lg">delete</span>
+                      </button>
+                    </div>
+                    <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
+                    <div className="mt-auto flex justify-between items-center relative z-10">
+                       <div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} opacity-30`}></div>
+                       <span className="text-[9px] font-bold uppercase tracking-tighter opacity-40 text-[#E3E2E6]">{new Date(note.timestamp).toLocaleDateString()}</span>
+                    </div>
                   </div>
-                  <h3 className="text-base font-light text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 450' }}>{note.headline}</h3>
-                  <div className="mt-auto flex justify-between items-center relative z-10">
-                     <div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} opacity-30`}></div>
-                     <span className="text-[9px] font-bold text-[#E3E2E6] uppercase tracking-tighter opacity-20">{new Date(note.timestamp).toLocaleDateString()}</span>
-                  </div>
-                  <div className={`absolute bottom-0 left-0 w-full h-1 ${theme.primaryBg} opacity-0 group-hover:opacity-20 transition-opacity`}></div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
+        </div>
+      )}
+
+      {noteToDelete && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 backdrop-blur-md bg-black/60 animate-in fade-in duration-300">
+            <div className="bg-[#601410] w-full max-w-sm rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-[#8C1D18] animate-in zoom-in-95 duration-300">
+                <div className="flex flex-col items-center text-center">
+                    <div className="w-16 h-16 rounded-full bg-[#3F1111] flex items-center justify-center mb-6 text-[#FFB4AB]">
+                        <span className="material-symbols-rounded text-3xl">delete</span>
+                    </div>
+                    <h4 className="text-2xl font-bold text-[#FFFFFF] mb-2 tracking-tight">Purge Entry?</h4>
+                    <p className="text-[#FFDAD6] mb-8 leading-relaxed px-4 opacity-90">
+                        "{noteToDelete.headline}" will be permanently removed from the neural store.
+                    </p>
+                    
+                    <div className="flex flex-col w-full gap-3">
+                        <button 
+                            onClick={() => deleteNote(noteToDelete.id)}
+                            className="w-full py-4 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-xs hover:bg-[#FFB4AB] hover:text-[#601410] active:scale-95 transition-all shadow-lg"
+                        >
+                            Confirm Purge
+                        </button>
+                        <button 
+                            onClick={() => setNoteToDelete(null)}
+                            className="w-full py-4 rounded-full bg-transparent text-[#FFDAD6] font-bold uppercase tracking-widest text-xs hover:bg-black/20 active:scale-95 transition-all"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
       )}
     </div>

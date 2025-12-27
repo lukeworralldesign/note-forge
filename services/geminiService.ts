@@ -2,7 +2,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIReponse, ModelTier } from "../types";
 // @ts-ignore
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
+
+// Configure transformers.js for browser environment
+// This prevents the library from trying to find model files on the local server
+env.allowLocalModels = false;
+env.useBrowserCache = true;
 
 // Module-level state
 let currentTier: ModelTier = 'flash';
@@ -16,19 +21,27 @@ export const setModelTier = (tier: ModelTier) => {
 export const initLocalEmbedder = async () => {
   if (localEmbedder) return localEmbedder;
   try {
+    // We force remote loading by setting env.allowLocalModels = false above.
+    // This model is used for local vector search (Orama).
     localEmbedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
     return localEmbedder;
   } catch (e) {
-    console.error("Local embedder initialization failed", e);
+    console.error("Local embedder initialization failed. This usually happens if the model CDN is unreachable or blocked.", e);
+    // Return null so the app gracefully degrades to standard text search
     return null;
   }
 };
 
 export const getLocalEmbedding = async (text: string): Promise<number[] | null> => {
-  const model = await initLocalEmbedder();
-  if (!model) return null;
-  const output = await model(text, { pooling: 'mean', normalize: true });
-  return Array.from(output.data) as number[];
+  try {
+    const model = await initLocalEmbedder();
+    if (!model) return null;
+    const output = await model(text, { pooling: 'mean', normalize: true });
+    return Array.from(output.data) as number[];
+  } catch (e) {
+    console.error("Local embedding generation failed", e);
+    return null;
+  }
 };
 
 const TAG_LIBRARY = `

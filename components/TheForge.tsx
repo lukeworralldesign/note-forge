@@ -74,7 +74,7 @@ const TheForge: React.FC<TheForgeProps> = ({
     <div className={`w-full mb-8 transition-all duration-500 ease-[cubic-bezier(0.05,0.7,0.1,1.0)] ${isFocused ? 'scale-[1.02]' : 'scale-100'}`}>
       <div 
         className={`
-            relative overflow-hidden
+            flex flex-col overflow-hidden
             ${theme.surface}
             rounded-[2rem] 
             transition-all duration-300
@@ -90,10 +90,10 @@ const TheForge: React.FC<TheForgeProps> = ({
           onBlur={handleBlur}
           placeholder={isEditing ? "Modifying entry..." : "New note..."}
           enterKeyHint="done"
-          className="w-full h-48 md:h-56 bg-transparent p-6 pb-24 text-xl md:text-2xl text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none resize-none leading-relaxed"
+          className="w-full h-48 md:h-56 bg-transparent p-6 text-xl md:text-2xl text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none resize-none leading-relaxed"
         />
 
-        <div className="absolute bottom-4 right-4 flex items-center gap-4">
+        <div className="flex items-center justify-end px-6 pb-6 gap-4">
              {isEditing && (
                  <button 
                     onClick={onCancelEdit}

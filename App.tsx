@@ -332,43 +332,50 @@ const App: React.FC = () => {
 
       {showOverview && (
         <div 
-          className="fixed inset-0 z-[9999] overflow-y-auto backdrop-blur-[100px] anti-alias-container" 
+          className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm" 
           style={{ 
-            backgroundColor: `${theme.bg}D0`, 
+            backgroundColor: 'rgba(0,0,0,0.6)', 
             animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' 
           }}
         >
-          <div className="p-8 md:p-16 max-w-[1600px] mx-auto w-full min-h-full flex flex-col">
-            <div className="flex items-center justify-between mb-12 flex-shrink-0">
+          <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col">
+            <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
               <div className="flex flex-col">
                 <h1 
-                  className="text-4xl md:text-6xl text-[#E3E2E6] tracking-tighter"
+                  className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight transition-all duration-700"
                   style={{ fontVariationSettings: `"wght" ${logoVar.wght}, "wdth" 100, "slnt" 0` }}
                 >
                   grid-overview
                 </h1>
-                <span className={`${theme.primaryText} text-xs font-black uppercase tracking-[0.4em] mt-2 opacity-50`}>{notes.length} RECORDS INDEXED</span>
+                <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
+                  {notes.length} RECORDS INDEXED
+                </div>
               </div>
-              <button onClick={() => setShowOverview(false)} className={`w-16 h-16 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-2xl active:scale-90 border border-white/10 hover:bg-white/10 transition-colors`}>
-                <span className="material-symbols-rounded text-3xl">close</span>
-              </button>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setShowOverview(false)} 
+                  className={`w-12 h-12 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-xl active:scale-90 border border-white/10 hover:bg-white/10 transition-all`}
+                >
+                  <span className="material-symbols-rounded text-2xl">close</span>
+                </button>
+              </div>
             </div>
             
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 pb-24">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-24 mt-4">
               {notes.map((note, index) => (
                 <div 
                   key={note.id} 
                   onClick={() => scrollToNote(note.id)} 
-                  className={`${theme.surface} p-4 rounded-3xl cursor-pointer border border-white/5 transition-all hover:scale-[1.05] hover:shadow-2xl hover:bg-white/10 flex flex-col gap-2 h-[160px] shadow-lg anti-alias-item group relative overflow-hidden`} 
+                  className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:bg-white/10 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} 
                   style={{ animation: `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` }}
                 >
                   <div className="flex justify-between items-start flex-shrink-0 relative z-10">
-                    <span className={`text-[8px] uppercase font-black tracking-[0.1em] ${theme.primaryText} truncate opacity-50 group-hover:opacity-100 transition-opacity`}>{note.category}</span>
+                    <span className={`text-[9px] uppercase font-black tracking-[0.1em] ${theme.primaryText} truncate opacity-50 group-hover:opacity-100 transition-opacity`}>{note.category}</span>
                   </div>
-                  <h3 className="text-sm font-light text-[#E3E2E6] leading-tight line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 450' }}>{note.headline}</h3>
+                  <h3 className="text-base font-light text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 450' }}>{note.headline}</h3>
                   <div className="mt-auto flex justify-between items-center relative z-10">
-                     <div className={`w-1 h-1 rounded-full ${theme.primaryBg} opacity-30`}></div>
-                     <span className="text-[8px] font-bold text-[#E3E2E6] uppercase tracking-tighter opacity-20">{new Date(note.timestamp).toLocaleDateString()}</span>
+                     <div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} opacity-30`}></div>
+                     <span className="text-[9px] font-bold text-[#E3E2E6] uppercase tracking-tighter opacity-20">{new Date(note.timestamp).toLocaleDateString()}</span>
                   </div>
                   <div className={`absolute bottom-0 left-0 w-full h-1 ${theme.primaryBg} opacity-0 group-hover:opacity-20 transition-opacity`}></div>
                 </div>

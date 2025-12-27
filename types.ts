@@ -50,13 +50,13 @@ interface CategoryStyle {
 }
 
 export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
-  writing: { bg: HERO_COLORS.ELECTRIC_BLUE, text: '#FFFFFF' },
+  writing: { bg: HERO_COLORS.ELECTRIC_BLUE, text: HERO_COLORS.CHARCOAL },
   shopping: { bg: HERO_COLORS.LIME, text: HERO_COLORS.CHARCOAL },
   tech: { bg: HERO_COLORS.BRIGHT_YELLOW, text: HERO_COLORS.CHARCOAL },
   ideas: { bg: HERO_COLORS.BRIGHT_PINK, text: HERO_COLORS.CHARCOAL },
-  character: { bg: HERO_COLORS.CORAL, text: '#FFFFFF' },
-  lore: { bg: HERO_COLORS.BRIGHT_PURPLE, text: '#FFFFFF' },
-  mission: { bg: HERO_COLORS.PURE_ORANGE, text: '#FFFFFF' },
+  character: { bg: HERO_COLORS.CORAL, text: HERO_COLORS.CHARCOAL },
+  lore: { bg: HERO_COLORS.BRIGHT_PURPLE, text: HERO_COLORS.CHARCOAL },
+  mission: { bg: HERO_COLORS.PURE_ORANGE, text: HERO_COLORS.CHARCOAL },
   transit: { bg: HERO_COLORS.PERIWINKLE, text: HERO_COLORS.CHARCOAL },
   personal: { bg: HERO_COLORS.CYAN, text: HERO_COLORS.CHARCOAL },
   default: { bg: HERO_COLORS.SILVER, text: HERO_COLORS.CHARCOAL }

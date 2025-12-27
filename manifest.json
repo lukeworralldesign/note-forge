@@ -22,8 +22,20 @@
   ],
   "icons": [
     {
-      "src": "resources/icon-144x144.png",
-      "sizes": "144x144",
+      "src": "resources/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "resources/maskable-icon-512x512.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "resources/icon-512x512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
@@ -34,16 +46,10 @@
       "purpose": "any"
     },
     {
-      "src": "resources/icon-512x512.png",
-      "sizes": "512x512",
+      "src": "resources/icon-144x144.png",
+      "sizes": "144x144",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "resources/maskable-icon-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     },
     {
       "src": "resources/apple-touch-icon.png",

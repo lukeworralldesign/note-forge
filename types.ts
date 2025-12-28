@@ -59,6 +59,8 @@ export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
   mission: { bg: HERO_COLORS.PURE_ORANGE, text: HERO_COLORS.CHARCOAL },
   transit: { bg: HERO_COLORS.PERIWINKLE, text: HERO_COLORS.CHARCOAL },
   personal: { bg: HERO_COLORS.CYAN, text: HERO_COLORS.CHARCOAL },
+  task: { bg: HERO_COLORS.SKY_BLUE, text: HERO_COLORS.CHARCOAL },
+  reminder: { bg: HERO_COLORS.BRIGHT_YELLOW, text: HERO_COLORS.CHARCOAL },
   default: { bg: HERO_COLORS.SILVER, text: HERO_COLORS.CHARCOAL }
 };
 

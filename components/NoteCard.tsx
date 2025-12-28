@@ -63,6 +63,28 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     }
   };
 
+  const handleExportToTasks = async () => {
+    let taskText = note.content;
+    
+    // Logic: If user input or AI reformat contains 'reminder to', strip it for the task name
+    const reminderPrefixRegex = /^reminder\s+to\s+/i;
+    if (reminderPrefixRegex.test(taskText)) {
+      taskText = taskText.replace(reminderPrefixRegex, '');
+    } else {
+      // If the prefix isn't found at the start, check the headline too or just use the headline
+      taskText = note.headline;
+    }
+
+    try {
+      await navigator.clipboard.writeText(taskText.trim());
+    } catch (e) {
+      console.error("Clipboard failed", e);
+    }
+    
+    // Open Google Tasks
+    window.open('https://tasks.google.com/', '_blank');
+  };
+
   const handleReformat = async () => {
     if (isReformatting) return;
     setIsReformatting(true);
@@ -94,6 +116,8 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
   };
 
   const style = getCategoryStyle(note.category);
+  const isTaskOrReminder = ['task', 'reminder'].includes(note.category.toLowerCase()) || 
+                           note.tags.some(t => ['To-Do', 'Urgent', 'Personal'].includes(t));
 
   return (
     <div className="masonry-item group relative">
@@ -169,17 +193,25 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             ))}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleExportToTasks}
+            className={`w-12 h-12 flex-shrink-0 rounded-full bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA] transition-all flex items-center justify-center shadow-sm ${isTaskOrReminder ? 'ring-2 ring-white/40 ring-offset-2 ring-offset-[#22241B]' : ''}`}
+            title="Export to Google Tasks"
+          >
+            <span className="material-symbols-rounded text-2xl">task_alt</span>
+          </button>
+          
           <button 
             onClick={handleExportToKeep}
-            className={`flex-1 py-3 px-2 rounded-full ${theme.secondaryBg} ${theme.secondaryText} text-[11px] font-bold uppercase tracking-wider ${theme.secondaryHover} transition-colors flex items-center justify-center gap-2 shadow-sm`}
+            className={`flex-1 h-12 rounded-full ${theme.secondaryBg} ${theme.secondaryText} text-[11px] font-bold uppercase tracking-wider ${theme.secondaryHover} transition-colors flex items-center justify-center gap-2 shadow-sm`}
           >
             <span className="material-symbols-rounded text-lg">keep</span>
             To Keep
           </button>
           <button 
             onClick={handleExportToObsidian}
-            className={`flex-1 py-3 px-2 rounded-full border border-[#444746] ${theme.surface} ${theme.primaryText} text-[11px] font-bold uppercase tracking-wider hover:bg-black/20 transition-colors flex items-center justify-center gap-2 shadow-sm`}
+            className={`flex-1 h-12 rounded-full border border-[#444746] ${theme.surface} ${theme.primaryText} text-[11px] font-bold uppercase tracking-wider hover:bg-black/20 transition-colors flex items-center justify-center gap-2 shadow-sm`}
           >
             <span className="material-symbols-rounded text-lg">diamond</span>
             To Obsidian

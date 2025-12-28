@@ -5,11 +5,9 @@ import { AIReponse, ModelTier } from "../types";
 import { pipeline, env } from '@xenova/transformers';
 
 // Configure transformers.js for browser environment
-// This prevents the library from trying to find model files on the local server
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-// Module-level state
 let currentTier: ModelTier = 'flash';
 let localEmbedder: any = null;
 
@@ -17,17 +15,13 @@ export const setModelTier = (tier: ModelTier) => {
   currentTier = tier;
 };
 
-// Initialize local embedding model for instant search
 export const initLocalEmbedder = async () => {
   if (localEmbedder) return localEmbedder;
   try {
-    // We force remote loading by setting env.allowLocalModels = false above.
-    // This model is used for local vector search (Orama).
     localEmbedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
     return localEmbedder;
   } catch (e) {
-    console.error("Local embedder initialization failed. This usually happens if the model CDN is unreachable or blocked.", e);
-    // Return null so the app gracefully degrades to standard text search
+    console.error("Local embedder initialization failed.", e);
     return null;
   }
 };
@@ -97,7 +91,9 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
         systemInstruction: `You are an automated Knowledge Engine Librarian. 
         Analyze the note and provide metadata using ONLY the provided TAG LIBRARY.
         RULES:
-        - Category: Functional category (Character, Lore, Tech, Transit, Mission, or Personal).
+        - Category: Functional category (Task, Reminder, Character, Lore, Tech, Transit, Mission, or Personal). 
+        - If the note sounds like an action item, use Category: Task.
+        - If the note sounds like a date or time-sensitive event, use Category: Reminder.
         - Headline: MAX 5 words.
         - Tags: 3-5 tags from TAG LIBRARY.
         OUTPUT FORMAT: JSON ONLY.`,

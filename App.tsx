@@ -140,7 +140,7 @@ const App: React.FC = () => {
         setNotes(current => current.map(n => n.id === newId ? { ...n, aiStatus: 'completed', ...aiResult, embedding: embedding || undefined } : n));
       } catch {
         setGeminiError(true);
-        setNotes(current => current.map(n => n.id === newId ? { ...n, aiStatus: 'error', category: 'Unsorted', headline: 'Note ' + new Date().toLocaleTimeString() } : n));
+        setNotes(current => current.map(n => n.id === newId ? { ...n, aiStatus: 'error', category: 'Thoughts', headline: 'Note ' + new Date().toLocaleTimeString() } : n));
       }
     }
   }, [editingNoteId]);
@@ -226,6 +226,23 @@ const App: React.FC = () => {
     }
     return notes.filter(n => n.content.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [notes, searchQuery, searchResults]);
+
+  /**
+   * Memoized sorting for the Grid Overview.
+   * Logic: Sort by Category (Alphabetical) then Timestamp (Descending).
+   */
+  const sortedNotesByCategory = useMemo(() => {
+    return [...notes].sort((a, b) => {
+      const catA = (a.category || 'Thoughts').toLowerCase();
+      const catB = (b.category || 'Thoughts').toLowerCase();
+
+      if (catA < catB) return -1;
+      if (catA > catB) return 1;
+
+      // Secondary: Most recent within the same category
+      return b.timestamp - a.timestamp;
+    });
+  }, [notes]);
 
   const theme = THEMES[modelTier];
   const logoVar = LOGO_VARIATIONS[logoVarIdx];
@@ -354,7 +371,7 @@ const App: React.FC = () => {
                   grid-overview
                 </h1>
                 <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
-                  {notes.length} RECORDS INDEXED
+                  {notes.length} RECORDS SORTED BY CATEGORY
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -368,7 +385,7 @@ const App: React.FC = () => {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-24 mt-4">
-              {notes.map((note, index) => {
+              {sortedNotesByCategory.map((note, index) => {
                 const style = getCategoryStyle(note.category);
                 return (
                   <div 
@@ -393,7 +410,11 @@ const App: React.FC = () => {
                     </div>
                     <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
                     <div className="mt-auto flex justify-between items-center relative z-10">
-                       <div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} opacity-30`}></div>
+                       <div className="flex flex-wrap gap-1">
+                          {note.tags.slice(0, 1).map((t, i) => (
+                             <span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>
+                          ))}
+                       </div>
                        <span className="text-[9px] font-bold uppercase tracking-tighter opacity-40 text-[#E3E2E6]">{new Date(note.timestamp).toLocaleDateString()}</span>
                     </div>
                   </div>

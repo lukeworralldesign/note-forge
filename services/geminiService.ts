@@ -89,13 +89,17 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
       contents: [{ parts }],
       config: {
         systemInstruction: `You are an automated Knowledge Engine Librarian. 
-        Analyze the note and provide metadata using ONLY the provided TAG LIBRARY.
+        Analyze the note and provide metadata using the provided TAG LIBRARY.
+        
         RULES:
-        - Category: Functional category (Task, Reminder, Character, Lore, Tech, Transit, Mission, or Personal). 
-        - If the note sounds like an action item, use Category: Task.
-        - If the note sounds like a date or time-sensitive event, use Category: Reminder.
-        - Headline: MAX 5 words.
+        - Category: You MUST categorize the note into EXACTLY ONE of these: Thoughts, Ideas, Reminders, Coding, Projects, Lists, Research, or Personal.
+        - Use "Coding" for any code snippets or technical dev discussions.
+        - Use "Lists" for bulleted items or shopping lists.
+        - Use "Reminders" for time-sensitive or task-oriented prompts.
+        - Use "Projects" for high-level goal planning.
+        - Headline: MAX 5 words. Summarize the core intent.
         - Tags: 3-5 tags from TAG LIBRARY.
+        
         OUTPUT FORMAT: JSON ONLY.`,
         responseMimeType: "application/json",
         responseSchema: {
@@ -113,7 +117,7 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
     const [response, embedding] = await Promise.all([contentPromise, embeddingPromise]);
     const result = JSON.parse(response.text || '{}');
     return {
-      category: result.category || 'General',
+      category: result.category || 'Thoughts',
       headline: result.headline || 'New Entry',
       tags: result.tags || [],
       embedding: embedding

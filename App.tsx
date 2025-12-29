@@ -42,14 +42,14 @@ const App: React.FC = () => {
   const [oramaDb, setOramaDb] = useState<any>(null);
   const [searchResults, setSearchResults] = useState<string[] | null>(null);
   const [isIndexing, setIsIndexing] = useState(false);
-  const [isReloadingEmbeddings, setIsReloadingEmbeddings] = useState(false);
-  const [reloadProgress, setReloadProgress] = useState<{ current: number, total: number } | null>(null);
+  const [isReprocessingAI, setIsReprocessingAI] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState<{ current: number, total: number } | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
 
   // --- Interactive Gesture State ---
   const [isSwiping, setIsSwiping] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0); 
-  const [wasSwipedOpen, setWasSwipedOpen] = useState(false); // Track if the current 'open' state was reached via swipe
+  const [wasSwipedOpen, setWasSwipedOpen] = useState(false); 
   const touchStartPos = useRef<{ x: number, y: number, time: number } | null>(null);
   const screenWidth = useRef(window.innerWidth);
 
@@ -78,18 +78,15 @@ const App: React.FC = () => {
     const deltaY = currentY - touchStartPos.current.y;
 
     if (!isSwiping) {
-      // Threshold for starting a horizontal swipe
       if (Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
         setIsSwiping(true);
       } else if (Math.abs(deltaY) > 15) {
-        // Vertical scroll intent detected, stop tracking swipe
         touchStartPos.current = null;
         return;
       }
     }
 
     if (isSwiping) {
-      // Only prevent default if we have committed to a swipe
       if (e.cancelable) e.preventDefault();
       
       let offset = deltaX;
@@ -165,7 +162,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!oramaDb || isReloadingEmbeddings) return;
+    if (!oramaDb || isReprocessingAI) return;
     const syncNotes = async () => {
       for (const note of notes) {
         if (note.embedding && note.embedding.length === 384) {
@@ -184,7 +181,7 @@ const App: React.FC = () => {
       }
     };
     syncNotes();
-  }, [notes, oramaDb, isReloadingEmbeddings]);
+  }, [notes, oramaDb, isReprocessingAI]);
 
   useEffect(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -242,35 +239,44 @@ const App: React.FC = () => {
     }
   }, [editingNoteId]);
 
-  const handleReloadEmbeddings = async () => {
-    if (isReloadingEmbeddings || notes.length === 0) return;
-    setIsReloadingEmbeddings(true);
-    setReloadProgress({ current: 0, total: notes.length });
+  const handleRefreshMetadata = async () => {
+    if (isReprocessingAI || notes.length === 0) return;
+    setIsReprocessingAI(true);
+    setRefreshProgress({ current: 0, total: notes.length });
+    
     try {
       const updatedNotes = [...notes];
       for (let i = 0; i < updatedNotes.length; i++) {
-        setReloadProgress({ current: i + 1, total: notes.length });
+        setRefreshProgress({ current: i + 1, total: notes.length });
         try {
-          const emb = await getLocalEmbedding(updatedNotes[i].content);
-          if (emb) {
-            updatedNotes[i] = { ...updatedNotes[i], embedding: emb };
-          }
+          // Re-process with Gemini to get updated Headline, Category, Tags, and possibly new embeddings
+          const aiResult = await processNoteWithAI(updatedNotes[i].content);
+          updatedNotes[i] = { 
+            ...updatedNotes[i], 
+            ...aiResult,
+            aiStatus: 'completed'
+          };
         } catch (e) {
-          console.error(`Failed to embed note ${i}`, e);
+          console.error(`Failed to re-process note ${i}`, e);
+          updatedNotes[i] = { ...updatedNotes[i], aiStatus: 'error' };
         }
       }
       setNotes(updatedNotes);
-      const db = await create({
-        schema: {
-          content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' 
-        }
-      });
-      setOramaDb(db);
+
+      // Completely rebuild Orama index with new metadata
+      if (oramaDb) {
+        const db = await create({
+          schema: {
+            content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' 
+          }
+        });
+        setOramaDb(db);
+      }
     } catch (err) {
-      console.error("Batch re-embedding failed", err);
+      console.error("Mass AI refresh failed", err);
     } finally {
-      setIsReloadingEmbeddings(false);
-      setTimeout(() => setReloadProgress(null), 3000);
+      setIsReprocessingAI(false);
+      setTimeout(() => setRefreshProgress(null), 3000);
     }
   };
 
@@ -374,6 +380,8 @@ const App: React.FC = () => {
     return showOverview ? maxOpacity : 0;
   };
 
+  const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
+
   return (
     <div 
       className="min-h-full pb-20 pt-safe-top transition-colors duration-500 relative overflow-x-hidden touch-pan-y"
@@ -388,7 +396,7 @@ const App: React.FC = () => {
         .touch-pan-y { touch-action: pan-y; }
       `}</style>
 
-      <header className={`pt-10 pb-6 px-5 max-w-5xl mx-auto flex items-center justify-between transition-all duration-400 ${(isFocusMode || showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+      <header className={`pt-10 pb-6 px-5 max-w-5xl mx-auto flex items-center justify-between ${backgroundBlurClasses}`}>
         <div className="flex flex-col">
           <h1 
             onClick={() => setLogoVarIdx(p => (p + 1) % LOGO_VARIATIONS.length)} 
@@ -400,10 +408,10 @@ const App: React.FC = () => {
             note-forge
           </h1>
           <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
-             {isIndexing || isReloadingEmbeddings ? (
+             {isIndexing || isReprocessingAI ? (
                 <span className="flex items-center gap-2">
                     <div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} animate-ping`}></div> 
-                    {isReloadingEmbeddings ? 'Neural Rebuild' : 'Index Initializing'}
+                    {isReprocessingAI ? 'AI Knowledge Rebuild' : 'Index Initializing'}
                 </span>
              ) : (
                 "INTELLIGENT NOTE TAKING"
@@ -416,8 +424,8 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className={`px-5 max-w-5xl mx-auto transition-all duration-400 ${(isFocusMode || showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
-        <div className="mb-10 relative group">
+      <main className="px-5 max-w-5xl mx-auto">
+        <div className={`mb-10 relative group ${backgroundBlurClasses}`}>
           <div className={`absolute inset-y-0 left-6 flex items-center pointer-events-none ${theme.subtleText} group-focus-within:${theme.primaryText} transition-colors opacity-40`}>
             <span className="material-symbols-rounded">search</span>
           </div>
@@ -430,9 +438,11 @@ const App: React.FC = () => {
           />
         </div>
 
-        <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
+        <div className={`transition-all duration-400 ${(showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+           <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
+        </div>
 
-        <div className="mt-10">
+        <div className={`mt-10 ${backgroundBlurClasses}`}>
           <div className="flex items-center gap-6 mb-8">
             <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme.subtleText} opacity-30`}>{searchQuery ? 'Neural Matching' : 'Recent Collections'}</span>
             <div className="h-[1px] flex-1 bg-white/5"></div>
@@ -446,19 +456,19 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        <div className="pb-20">
+        <div className={`pb-20 ${backgroundBlurClasses}`}>
           <ContextManager modelTier={modelTier} onTierChange={setModelTier} theme={theme} />
           <div className="flex flex-row items-stretch justify-center gap-4 mt-8 mb-20 w-full">
             <DataTransfer notes={notes} onImport={handleImportNotes} theme={theme} className="flex-[1.5]" />
             {notes.length > 0 && (
               <div className={`p-1 flex-1 flex rounded-full border border-white/5 ${theme.surface} shadow-lg transition-colors duration-500 h-12`}>
                 <button
-                  onClick={handleReloadEmbeddings}
-                  disabled={isReloadingEmbeddings}
-                  className={`w-full inline-flex items-center justify-center gap-2 h-full rounded-full ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500 ${isReloadingEmbeddings ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'} text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}
+                  onClick={handleRefreshMetadata}
+                  disabled={isReprocessingAI}
+                  className={`w-full inline-flex items-center justify-center gap-2 h-full rounded-full ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500 ${isReprocessingAI ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'} text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}
                 >
-                  <span className={`material-symbols-rounded text-lg ${isReloadingEmbeddings ? 'animate-spin' : ''}`}>sync</span>
-                  <span>{isReloadingEmbeddings ? `${Math.round((reloadProgress?.current || 0) / (reloadProgress?.total || 1) * 100)}%` : 'Embeddings'}</span>
+                  <span className={`material-symbols-rounded text-lg`}>auto_awesome</span>
+                  <span>{isReprocessingAI ? `${Math.round((refreshProgress?.current || 0) / (refreshProgress?.total || 1) * 100)}%` : 'Refresh AI'}</span>
                 </button>
               </div>
             )}
@@ -466,7 +476,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* INTERACTIVE GRID OVERVIEW */}
       <div 
         className={`fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm transition-transform duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] touch-pan-y ${isSwiping ? 'duration-0' : ''}`}
         style={{ 
@@ -488,7 +497,6 @@ const App: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-24 mt-4">
             {sortedNotesByCategory.map((note, index) => {
               const style = getCategoryStyle(note.category);
-              // Entrance animation only if opened via button, NOT via interactive swipe/flicker-prone condition
               const shouldAnimate = showOverview && !wasSwipedOpen && !isSwiping;
               return (
                 <div 

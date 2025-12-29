@@ -350,7 +350,7 @@ const App: React.FC = () => {
         <div 
           className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm" 
           style={{ 
-            backgroundColor: getFocusModeOverlayColor(theme.bg, 0.92), 
+            backgroundColor: getFocusModeOverlayColor(theme.bg, 0.4), 
             animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' 
           }}
         >

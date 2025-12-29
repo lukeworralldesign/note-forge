@@ -249,6 +249,16 @@ const App: React.FC = () => {
     }, 100);
   };
 
+  /**
+   * Helper to convert theme hex color to rgba for matching Focus Mode darkening.
+   */
+  const getFocusModeOverlayColor = (hex: string, alpha: number) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   return (
     <div className="min-h-full pb-20 pt-safe-top transition-colors duration-500 relative overflow-x-hidden">
       <style>{`
@@ -258,7 +268,7 @@ const App: React.FC = () => {
         .anti-alias-item { will-change: transform, opacity; backface-visibility: hidden; }
       `}</style>
 
-      <header className={`pt-10 pb-6 px-5 max-w-5xl mx-auto flex items-center justify-between transition-opacity duration-400 ${isFocusMode ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+      <header className={`pt-10 pb-6 px-5 max-w-5xl mx-auto flex items-center justify-between transition-opacity duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
         <div className="flex flex-col">
           <h1 
             onClick={() => setLogoVarIdx(p => (p + 1) % LOGO_VARIATIONS.length)} 
@@ -287,7 +297,7 @@ const App: React.FC = () => {
       </header>
 
       <main className="px-5 max-w-5xl mx-auto">
-        <div className={`mb-10 relative group transition-opacity duration-400 ${isFocusMode ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+        <div className={`mb-10 relative group transition-opacity duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
           <div className={`absolute inset-y-0 left-6 flex items-center pointer-events-none ${theme.subtleText} group-focus-within:${theme.primaryText} transition-colors opacity-40`}>
             <span className="material-symbols-rounded">search</span>
           </div>
@@ -302,7 +312,7 @@ const App: React.FC = () => {
 
         <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
 
-        <div className={`mt-10 transition-all duration-400 ${isFocusMode ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+        <div className={`mt-10 transition-all duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
           <div className="flex items-center gap-6 mb-8">
             <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme.subtleText} opacity-30`}>{searchQuery ? 'Neural Matching' : 'Recent Collections'}</span>
             <div className="h-[1px] flex-1 bg-white/5"></div>
@@ -316,7 +326,7 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        <div className={`transition-all duration-400 ${isFocusMode ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+        <div className={`transition-all duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
           <ContextManager modelTier={modelTier} onTierChange={setModelTier} theme={theme} />
           <div className="flex flex-row items-stretch justify-center gap-4 mt-8 mb-20 w-full">
             <DataTransfer notes={notes} onImport={handleImportNotes} theme={theme} className="flex-[1.5]" />
@@ -337,7 +347,13 @@ const App: React.FC = () => {
       </main>
 
       {showOverview && (
-        <div className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-3xl" style={{ backgroundColor: 'transparent', animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' }}>
+        <div 
+          className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm" 
+          style={{ 
+            backgroundColor: getFocusModeOverlayColor(theme.bg, 0.92), 
+            animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' 
+          }}
+        >
           <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col">
             <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
               <div className="flex flex-col">

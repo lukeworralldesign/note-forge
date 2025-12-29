@@ -46,7 +46,6 @@ const App: React.FC = () => {
   const [reloadProgress, setReloadProgress] = useState<{ current: number, total: number } | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
 
-  // Initialize Orama and Neural Model
   useEffect(() => {
     const initEngine = async () => {
       setIsIndexing(true);
@@ -71,7 +70,6 @@ const App: React.FC = () => {
     initEngine();
   }, []);
 
-  // Sync Notes to Orama
   useEffect(() => {
     if (!oramaDb || isReloadingEmbeddings) return;
     const syncNotes = async () => {
@@ -87,7 +85,6 @@ const App: React.FC = () => {
               embedding: note.embedding
             });
           } catch (e) {
-            // Document might already exist
           }
         }
       }
@@ -122,21 +119,13 @@ const App: React.FC = () => {
 
   const handleNoteSave = useCallback(async (content: string) => {
     if (editingNoteId) {
-      const targetId = editingNoteId; // Capture ID before clearing state
-      
-      // 1. CLEAR UI STATE IMMEDIATELY - THIS FIXES THE "NOT CLOSING" BUG
+      const targetId = editingNoteId;
       setEditingNoteId(null);
       setEditContent('');
-      
-      // 2. Update note to 'processing' state in the background
       setNotes(prev => prev.map(n => n.id === targetId ? { ...n, content, aiStatus: 'processing' } : n));
-      
       try {
-        // 3. Perform AI analysis in the background
         const aiResult = await processNoteWithAI(content);
         const embedding = await getLocalEmbedding(content);
-        
-        // 4. Update the note with the final AI-refined metadata
         setNotes(prev => prev.map(n => n.id === targetId ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
       } catch (e) {
         console.error("Background AI update failed during edit", e);
@@ -163,7 +152,6 @@ const App: React.FC = () => {
     if (isReloadingEmbeddings || notes.length === 0) return;
     setIsReloadingEmbeddings(true);
     setReloadProgress({ current: 0, total: notes.length });
-    
     try {
       const updatedNotes = [...notes];
       for (let i = 0; i < updatedNotes.length; i++) {
@@ -178,7 +166,6 @@ const App: React.FC = () => {
         }
       }
       setNotes(updatedNotes);
-      
       const db = await create({
         schema: {
           content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' 
@@ -241,19 +228,12 @@ const App: React.FC = () => {
     return notes.filter(n => n.content.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [notes, searchQuery, searchResults]);
 
-  /**
-   * Memoized sorting for the Grid Overview.
-   * Logic: Sort by Category (Alphabetical) then Timestamp (Descending).
-   */
   const sortedNotesByCategory = useMemo(() => {
     return [...notes].sort((a, b) => {
       const catA = (a.category || 'Thoughts').toLowerCase();
       const catB = (b.category || 'Thoughts').toLowerCase();
-
       if (catA < catB) return -1;
       if (catA > catB) return 1;
-
-      // Secondary: Most recent within the same category
       return b.timestamp - a.timestamp;
     });
   }, [notes]);
@@ -338,28 +318,17 @@ const App: React.FC = () => {
         
         <div className={`transition-all duration-400 ${isFocusMode ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
           <ContextManager modelTier={modelTier} onTierChange={setModelTier} theme={theme} />
-          
           <div className="flex flex-row items-stretch justify-center gap-4 mt-8 mb-20 w-full">
             <DataTransfer notes={notes} onImport={handleImportNotes} theme={theme} className="flex-[1.5]" />
-
             {notes.length > 0 && (
               <div className={`p-1 flex-1 flex rounded-full border border-white/5 ${theme.surface} shadow-lg transition-colors duration-500 h-12`}>
                 <button
                   onClick={handleReloadEmbeddings}
                   disabled={isReloadingEmbeddings}
-                  className={`
-                    w-full inline-flex items-center justify-center gap-2 h-full rounded-full
-                    ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500
-                    ${isReloadingEmbeddings ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'}
-                    text-[10px] font-black uppercase tracking-[0.2em] shadow-md
-                  `}
+                  className={`w-full inline-flex items-center justify-center gap-2 h-full rounded-full ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500 ${isReloadingEmbeddings ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'} text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}
                 >
                   <span className={`material-symbols-rounded text-lg ${isReloadingEmbeddings ? 'animate-spin' : ''}`}>sync</span>
-                  <span>
-                    {isReloadingEmbeddings 
-                      ? `${Math.round((reloadProgress?.current || 0) / (reloadProgress?.total || 1) * 100)}%` 
-                      : 'Embeddings'}
-                  </span>
+                  <span>{isReloadingEmbeddings ? `${Math.round((reloadProgress?.current || 0) / (reloadProgress?.total || 1) * 100)}%` : 'Embeddings'}</span>
                 </button>
               </div>
             )}
@@ -368,66 +337,30 @@ const App: React.FC = () => {
       </main>
 
       {showOverview && (
-        <div 
-          className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm" 
-          style={{ 
-            backgroundColor: 'rgba(0,0,0,0.6)', 
-            animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' 
-          }}
-        >
+        <div className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm" style={{ backgroundColor: 'rgba(0,0,0,0.6)', animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' }}>
           <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col">
             <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
               <div className="flex flex-col">
-                <h1 
-                  className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight transition-all duration-700"
-                  style={{ fontVariationSettings: `"wght" ${logoVar.wght}, "wdth" 100, "slnt" 0` }}
-                >
-                  grid-overview
-                </h1>
-                <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
-                  {notes.length} RECORDS SORTED BY CATEGORY
-                </div>
+                <h1 className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight transition-all duration-700" style={{ fontVariationSettings: `"wght" ${logoVar.wght}, "wdth" 100, "slnt" 0` }}>grid-overview</h1>
+                <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>{notes.length} RECORDS SORTED BY CATEGORY</div>
               </div>
               <div className="flex items-center gap-4">
-                <button 
-                  onClick={() => setShowOverview(false)} 
-                  className={`w-12 h-12 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-xl active:scale-90 border border-white/10 hover:bg-white/10 transition-all`}
-                >
-                  <span className="material-symbols-rounded text-2xl">close</span>
-                </button>
+                <button onClick={() => setShowOverview(false)} className={`w-12 h-12 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-xl active:scale-90 border border-white/10 hover:bg-white/10 transition-all`}><span className="material-symbols-rounded text-2xl">close</span></button>
               </div>
             </div>
-            
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-24 mt-4">
               {sortedNotesByCategory.map((note, index) => {
                 const style = getCategoryStyle(note.category);
                 return (
-                  <div 
-                    key={note.id} 
-                    onClick={() => scrollToNote(note.id)} 
-                    className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} 
-                    style={{ animation: `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` }}
-                  >
+                  <div key={note.id} onClick={() => scrollToNote(note.id)} className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} style={{ animation: `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` }}>
                     <div className="flex justify-between items-center flex-shrink-0 relative z-10">
-                      <span 
-                        className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm"
-                        style={{ backgroundColor: style.bg, color: style.text }}
-                      >
-                        {note.category}
-                      </span>
-                      <button 
-                          onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }}
-                          className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"
-                      >
-                          <span className="material-symbols-rounded text-lg">delete</span>
-                      </button>
+                      <span className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm" style={{ backgroundColor: style.bg, color: style.text }}>{note.category}</span>
+                      <button onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }} className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"><span className="material-symbols-rounded text-lg">delete</span></button>
                     </div>
                     <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
                     <div className="mt-auto flex justify-between items-center relative z-10">
                        <div className="flex flex-wrap gap-1">
-                          {note.tags.slice(0, 1).map((t, i) => (
-                             <span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>
-                          ))}
+                          {note.tags.slice(0, 1).map((t, i) => (<span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>))}
                        </div>
                        <span className="text-[9px] font-bold uppercase tracking-tighter opacity-40 text-[#E3E2E6]">{new Date(note.timestamp).toLocaleDateString()}</span>
                     </div>
@@ -439,9 +372,10 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* REFINED GLOBAL DELETE MODAL (for Grid Overview) */}
       {noteToDelete && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 backdrop-blur-md bg-black/60 animate-in fade-in duration-300">
-            <div className="bg-[#601410] w-full max-w-sm rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-[#8C1D18] animate-in zoom-in-95 duration-300">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl animate-in fade-in duration-300 overflow-hidden">
+            <div className="bg-[#601410] w-full max-w-sm rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-[#8C1D18] animate-in zoom-in-95 duration-300 relative">
                 <div className="flex flex-col items-center text-center">
                     <div className="w-16 h-16 rounded-full bg-[#3F1111] flex items-center justify-center mb-6 text-[#FFB4AB]">
                         <span className="material-symbols-rounded text-3xl">delete</span>
@@ -450,20 +384,9 @@ const App: React.FC = () => {
                     <p className="text-[#FFDAD6] mb-8 leading-relaxed px-4 opacity-90">
                         "{noteToDelete.headline}" will be permanently removed from the neural store.
                     </p>
-                    
                     <div className="flex flex-col w-full gap-3">
-                        <button 
-                            onClick={() => deleteNote(noteToDelete.id)}
-                            className="w-full py-4 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-xs hover:bg-[#FFB4AB] hover:text-[#601410] active:scale-95 transition-all shadow-lg"
-                        >
-                            Confirm Purge
-                        </button>
-                        <button 
-                            onClick={() => setNoteToDelete(null)}
-                            className="w-full py-4 rounded-full bg-transparent text-[#FFDAD6] font-bold uppercase tracking-widest text-xs hover:bg-black/20 active:scale-95 transition-all"
-                        >
-                            Cancel
-                        </button>
+                        <button onClick={() => deleteNote(noteToDelete.id)} className="w-full py-4 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-xs hover:bg-[#FFB4AB] hover:text-[#601410] active:scale-95 transition-all shadow-lg">Confirm Purge</button>
+                        <button onClick={() => setNoteToDelete(null)} className="w-full py-4 rounded-full bg-transparent text-[#FFDAD6] font-bold uppercase tracking-widest text-xs hover:bg-black/20 active:scale-95 transition-all">Cancel</button>
                     </div>
                 </div>
             </div>

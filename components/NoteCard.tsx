@@ -45,7 +45,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     const text = note.content;
     const fullText = `${title}\n\n${text}`;
 
-    // Priority: Use the Web Share API on mobile to bridge directly to the Keep app
     if (navigator.share) {
       try {
         await navigator.share({
@@ -58,7 +57,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
       }
     }
 
-    // Fallback: Clipboard + URL
     try {
       await navigator.clipboard.writeText(fullText);
     } catch (e) {
@@ -69,13 +67,10 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
 
   const handleExportToTasks = async () => {
     let taskText = note.content;
-    
-    // Requirement: Copy ONLY the content after 'reminder to' (case-insensitive)
     const reminderPrefixRegex = /^reminder\s+to\s+/i;
     if (reminderPrefixRegex.test(taskText)) {
       taskText = taskText.replace(reminderPrefixRegex, '');
     } else {
-      // Fallback to headline if the prefix isn't present in the body
       taskText = note.headline;
     }
 
@@ -84,8 +79,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     } catch (e) {
       console.error("Clipboard failed", e);
     }
-    
-    // Redirect to Google Tasks
     window.open('https://tasks.google.com/', '_blank');
   };
 
@@ -93,7 +86,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     if (isReformatting) return;
     setIsReformatting(true);
     const originalContent = note.content;
-    
     try {
         const newContent = await reformatNoteContent(note.content);
         if (newContent) {
@@ -124,8 +116,9 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
 
   return (
     <div className="masonry-item group relative">
-      <div className={`${theme.key === 'pro' ? 'bg-[#1E2228]' : 'bg-[#22241B]'} rounded-[1.5rem] p-5 border ${theme.surfaceBorder} overflow-hidden transition-all hover:bg-opacity-80 hover:shadow-xl hover:shadow-black/20 duration-300`}>
+      <div className={`${theme.key === 'pro' ? 'bg-[#1E2228]' : 'bg-[#22241B]'} rounded-[1.5rem] p-5 border ${theme.surfaceBorder} overflow-hidden transition-all hover:bg-opacity-80 hover:shadow-xl hover:shadow-black/20 duration-300 relative`}>
         
+        {/* Standard Note UI */}
         <div className="flex justify-between items-start mb-4">
           <span 
             className="px-3 py-1 rounded-lg text-[10px] font-black tracking-widest uppercase shadow-sm"
@@ -197,7 +190,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Circular Task Icon - Material 3 Blue Primary Container Style */}
           <button 
             onClick={handleExportToTasks}
             className={`w-12 h-12 flex-shrink-0 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA] ${isActionable ? 'ring-2 ring-white/20' : ''}`}
@@ -206,7 +198,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             <span className="material-symbols-rounded text-2xl">task_alt</span>
           </button>
           
-          {/* Keep Icon - Reverted to previous theme-based colors */}
           <button 
             onClick={handleExportToKeep}
             className={`flex-1 h-12 rounded-full ${theme.secondaryBg} ${theme.secondaryText} text-[11px] font-bold uppercase tracking-wider ${theme.secondaryHover} transition-colors flex items-center justify-center gap-2 shadow-sm`}
@@ -223,38 +214,35 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             To Obsidian
           </button>
         </div>
-      </div>
 
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-sm bg-black/40 animate-in fade-in duration-200">
-            <div className="bg-[#601410] w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl border border-[#8C1D18] animate-in zoom-in-95 duration-200">
-                <div className="flex flex-col items-center text-center">
-                    <div className="w-16 h-16 rounded-full bg-[#3F1111] flex items-center justify-center mb-6 text-[#FFB4AB]">
-                        <span className="material-symbols-rounded text-3xl">delete</span>
-                    </div>
-                    <h4 className="text-2xl font-bold text-[#FFFFFF] mb-2 tracking-tight">Delete Note?</h4>
-                    <p className="text-[#FFDAD6] mb-8 leading-relaxed px-4 opacity-90">
-                        This record will be permanently purged from the local store. This cannot be undone.
-                    </p>
-                    
-                    <div className="flex flex-col w-full gap-3">
-                        <button 
-                            onClick={() => onDelete(note.id)}
-                            className="w-full py-4 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-xs hover:bg-[#FFB4AB] hover:text-[#601410] active:scale-95 transition-all shadow-lg"
-                        >
-                            Confirm Purge
-                        </button>
-                        <button 
-                            onClick={() => setShowDeleteConfirm(false)}
-                            className="w-full py-4 rounded-full bg-transparent text-[#FFDAD6] font-bold uppercase tracking-widest text-xs hover:bg-black/20 active:scale-95 transition-all"
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
+        {/* IN-CARD DELETE CONFIRMATION OVERLAY */}
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-50 p-4 bg-[#601410]/95 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200 flex flex-col items-center justify-center text-center rounded-[1.5rem]">
+              <div className="w-12 h-12 rounded-full bg-[#3F1111] flex items-center justify-center mb-3 text-[#FFB4AB]">
+                  <span className="material-symbols-rounded text-2xl">delete</span>
+              </div>
+              <h4 className="text-lg font-bold text-white mb-1 tracking-tight">Purge Entry?</h4>
+              <p className="text-[#FFDAD6] text-xs mb-5 leading-snug px-4 opacity-90">
+                  This action is permanent and cannot be reversed.
+              </p>
+              
+              <div className="flex flex-col w-full gap-2 max-w-[180px]">
+                  <button 
+                      onClick={() => onDelete(note.id)}
+                      className="w-full py-2.5 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-[10px] hover:bg-[#FFB4AB] hover:text-[#601410] active:scale-95 transition-all shadow-lg border border-[#8C1D18]"
+                  >
+                      Confirm
+                  </button>
+                  <button 
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="w-full py-2.5 rounded-full bg-white/10 text-[#FFDAD6] font-bold uppercase tracking-widest text-[10px] hover:bg-white/20 active:scale-95 transition-all"
+                  >
+                      Cancel
+                  </button>
+              </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -46,6 +46,100 @@ const App: React.FC = () => {
   const [reloadProgress, setReloadProgress] = useState<{ current: number, total: number } | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
 
+  // --- Interactive Gesture State ---
+  const [isSwiping, setIsSwiping] = useState(false);
+  const [swipeOffset, setSwipeOffset] = useState(0); 
+  const [wasSwipedOpen, setWasSwipedOpen] = useState(false); // Track if the current 'open' state was reached via swipe
+  const touchStartPos = useRef<{ x: number, y: number, time: number } | null>(null);
+  const screenWidth = useRef(window.innerWidth);
+
+  useEffect(() => {
+    const handleResize = () => { screenWidth.current = window.innerWidth; };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartPos.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      time: Date.now()
+    };
+    setIsSwiping(false);
+    setSwipeOffset(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPos.current) return;
+
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const deltaX = currentX - touchStartPos.current.x;
+    const deltaY = currentY - touchStartPos.current.y;
+
+    if (!isSwiping) {
+      // Threshold for starting a horizontal swipe
+      if (Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+        setIsSwiping(true);
+      } else if (Math.abs(deltaY) > 15) {
+        // Vertical scroll intent detected, stop tracking swipe
+        touchStartPos.current = null;
+        return;
+      }
+    }
+
+    if (isSwiping) {
+      // Only prevent default if we have committed to a swipe
+      if (e.cancelable) e.preventDefault();
+      
+      let offset = deltaX;
+      if (!showOverview) {
+        offset = Math.min(0, deltaX);
+      } else {
+        offset = Math.max(0, deltaX);
+      }
+      setSwipeOffset(offset);
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartPos.current || !isSwiping) {
+      touchStartPos.current = null;
+      setIsSwiping(false);
+      return;
+    }
+
+    const deltaX = e.changedTouches[0].clientX - touchStartPos.current.x;
+    const deltaTime = Date.now() - touchStartPos.current.time;
+    const velocity = Math.abs(deltaX) / (deltaTime || 1); 
+    
+    touchStartPos.current = null;
+    setIsSwiping(false);
+    setSwipeOffset(0);
+
+    const threshold = screenWidth.current * 0.25; 
+    const velocityThreshold = 0.4; 
+
+    if (!showOverview) {
+      if (deltaX < -threshold || (velocity > velocityThreshold && deltaX < 0)) {
+        setWasSwipedOpen(true);
+        setShowOverview(true);
+      }
+    } else {
+      if (deltaX > threshold || (velocity > velocityThreshold && deltaX > 0)) {
+        setShowOverview(false);
+        setTimeout(() => setWasSwipedOpen(false), 500);
+      }
+    }
+  };
+
+  const toggleOverviewProgrammatically = (open: boolean) => {
+    setWasSwipedOpen(false); 
+    setShowOverview(open);
+  };
+
+  // --- End Gesture Logic ---
+
   useEffect(() => {
     const initEngine = async () => {
       setIsIndexing(true);
@@ -249,9 +343,6 @@ const App: React.FC = () => {
     }, 100);
   };
 
-  /**
-   * Helper to convert theme hex color to rgba for matching Focus Mode darkening.
-   */
   const getFocusModeOverlayColor = (hex: string, alpha: number) => {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -259,16 +350,45 @@ const App: React.FC = () => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
+  const getOverviewTransform = () => {
+    if (isSwiping) {
+      if (!showOverview) {
+        return `translateX(calc(100% + ${swipeOffset}px))`;
+      } else {
+        return `translateX(${swipeOffset}px)`;
+      }
+    }
+    return showOverview ? 'translateX(0)' : 'translateX(100%)';
+  };
+
+  const getBackdropOpacity = () => {
+    const maxOpacity = 0.4;
+    if (isSwiping) {
+      const progress = Math.abs(swipeOffset) / screenWidth.current;
+      if (!showOverview) {
+        return Math.min(maxOpacity, progress * maxOpacity * 4); 
+      } else {
+        return Math.max(0, maxOpacity - (progress * maxOpacity));
+      }
+    }
+    return showOverview ? maxOpacity : 0;
+  };
+
   return (
-    <div className="min-h-full pb-20 pt-safe-top transition-colors duration-500 relative overflow-x-hidden">
+    <div 
+      className="min-h-full pb-20 pt-safe-top transition-colors duration-500 relative overflow-x-hidden touch-pan-y"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       <style>{`
-        @keyframes fizzle-blur-in { 0% { opacity: 0; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1); } }
         @keyframes staggered-materialize { 0% { transform: translateY(16px); filter: blur(10px); opacity: 0; } 100% { transform: translateY(0); filter: blur(0px); opacity: 1; } }
         .anti-alias-container { perspective: 3000px; -webkit-font-smoothing: antialiased; }
         .anti-alias-item { will-change: transform, opacity; backface-visibility: hidden; }
+        .touch-pan-y { touch-action: pan-y; }
       `}</style>
 
-      <header className={`pt-10 pb-6 px-5 max-w-5xl mx-auto flex items-center justify-between transition-opacity duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+      <header className={`pt-10 pb-6 px-5 max-w-5xl mx-auto flex items-center justify-between transition-all duration-400 ${(isFocusMode || showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
         <div className="flex flex-col">
           <h1 
             onClick={() => setLogoVarIdx(p => (p + 1) % LOGO_VARIATIONS.length)} 
@@ -292,12 +412,12 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center gap-4">
           {notes.length > 0 && <FidgetStar sizeClass="w-8 h-8" colorClass={geminiError ? 'text-[#FFB4AB]' : theme.primaryText} />}
-          <button onClick={() => setShowOverview(true)} className={`w-12 h-12 rounded-full ${theme.primaryBg} ${theme.onPrimaryText} flex items-center justify-center font-black text-lg shadow-xl transition-all active:scale-90`}>{notes.length}</button>
+          <button onClick={() => toggleOverviewProgrammatically(true)} className={`w-12 h-12 rounded-full ${theme.primaryBg} ${theme.onPrimaryText} flex items-center justify-center font-black text-lg shadow-xl transition-all active:scale-90`}>{notes.length}</button>
         </div>
       </header>
 
-      <main className="px-5 max-w-5xl mx-auto">
-        <div className={`mb-10 relative group transition-opacity duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+      <main className={`px-5 max-w-5xl mx-auto transition-all duration-400 ${(isFocusMode || showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+        <div className="mb-10 relative group">
           <div className={`absolute inset-y-0 left-6 flex items-center pointer-events-none ${theme.subtleText} group-focus-within:${theme.primaryText} transition-colors opacity-40`}>
             <span className="material-symbols-rounded">search</span>
           </div>
@@ -312,7 +432,7 @@ const App: React.FC = () => {
 
         <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
 
-        <div className={`mt-10 transition-all duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+        <div className="mt-10">
           <div className="flex items-center gap-6 mb-8">
             <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme.subtleText} opacity-30`}>{searchQuery ? 'Neural Matching' : 'Recent Collections'}</span>
             <div className="h-[1px] flex-1 bg-white/5"></div>
@@ -326,7 +446,7 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        <div className={`transition-all duration-400 ${(isFocusMode || showOverview) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+        <div className="pb-20">
           <ContextManager modelTier={modelTier} onTierChange={setModelTier} theme={theme} />
           <div className="flex flex-row items-stretch justify-center gap-4 mt-8 mb-20 w-full">
             <DataTransfer notes={notes} onImport={handleImportNotes} theme={theme} className="flex-[1.5]" />
@@ -346,49 +466,56 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {showOverview && (
-        <div 
-          className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm" 
-          style={{ 
-            backgroundColor: getFocusModeOverlayColor(theme.bg, 0.4), 
-            animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' 
-          }}
-        >
-          <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col">
-            <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
-              <div className="flex flex-col">
-                <h1 className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight transition-all duration-700" style={{ fontVariationSettings: `"wght" ${logoVar.wght}, "wdth" 100, "slnt" 0` }}>grid-overview</h1>
-                <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>{notes.length} RECORDS SORTED BY CATEGORY</div>
-              </div>
-              <div className="flex items-center gap-4">
-                <button onClick={() => setShowOverview(false)} className={`w-12 h-12 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-xl active:scale-90 border border-white/10 hover:bg-white/10 transition-all`}><span className="material-symbols-rounded text-2xl">close</span></button>
-              </div>
+      {/* INTERACTIVE GRID OVERVIEW */}
+      <div 
+        className={`fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm transition-transform duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] touch-pan-y ${isSwiping ? 'duration-0' : ''}`}
+        style={{ 
+          backgroundColor: getFocusModeOverlayColor(theme.bg, getBackdropOpacity()),
+          transform: getOverviewTransform(),
+          visibility: (showOverview || isSwiping) ? 'visible' : 'hidden'
+        }}
+      >
+        <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col pointer-events-auto">
+          <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
+            <div className="flex flex-col">
+              <h1 className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight transition-all duration-700" style={{ fontVariationSettings: `"wght" ${logoVar.wght}, "wdth" 100, "slnt" 0` }}>grid-overview</h1>
+              <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>{notes.length} RECORDS SORTED BY CATEGORY</div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-24 mt-4">
-              {sortedNotesByCategory.map((note, index) => {
-                const style = getCategoryStyle(note.category);
-                return (
-                  <div key={note.id} onClick={() => scrollToNote(note.id)} className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} style={{ animation: `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` }}>
-                    <div className="flex justify-between items-center flex-shrink-0 relative z-10">
-                      <span className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm" style={{ backgroundColor: style.bg, color: style.text }}>{note.category}</span>
-                      <button onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }} className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"><span className="material-symbols-rounded text-lg">delete</span></button>
-                    </div>
-                    <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
-                    <div className="mt-auto flex justify-between items-center relative z-10">
-                       <div className="flex flex-wrap gap-1">
-                          {note.tags.slice(0, 1).map((t, i) => (<span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>))}
-                       </div>
-                       <span className="text-[9px] font-bold uppercase tracking-tighter opacity-40 text-[#E3E2E6]">{new Date(note.timestamp).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="flex items-center gap-4">
+              <button onClick={() => toggleOverviewProgrammatically(false)} className={`w-12 h-12 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-xl active:scale-90 border border-white/10 hover:bg-white/10 transition-all`}><span className="material-symbols-rounded text-2xl">close</span></button>
             </div>
           </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-24 mt-4">
+            {sortedNotesByCategory.map((note, index) => {
+              const style = getCategoryStyle(note.category);
+              // Entrance animation only if opened via button, NOT via interactive swipe/flicker-prone condition
+              const shouldAnimate = showOverview && !wasSwipedOpen && !isSwiping;
+              return (
+                <div 
+                  key={note.id} 
+                  onClick={() => scrollToNote(note.id)} 
+                  className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} 
+                  style={{ animation: shouldAnimate ? `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` : 'none' }}
+                >
+                  <div className="flex justify-between items-center flex-shrink-0 relative z-10">
+                    <span className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm" style={{ backgroundColor: style.bg, color: style.text }}>{note.category}</span>
+                    <button onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }} className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"><span className="material-symbols-rounded text-lg">delete</span></button>
+                  </div>
+                  <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
+                  <div className="mt-auto flex justify-between items-center relative z-10">
+                     <div className="flex flex-wrap gap-1">
+                        {note.tags.slice(0, 1).map((t, i) => (<span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>))}
+                     </div>
+                     <span className="text-[9px] font-bold uppercase tracking-tighter opacity-40 text-[#E3E2E6]">{new Date(note.timestamp).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      )}
+      </div>
 
-      {/* REFINED GLOBAL DELETE MODAL (for Grid Overview) */}
+      {/* REFINED GLOBAL DELETE MODAL */}
       {noteToDelete && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl animate-in fade-in duration-300 overflow-hidden">
             <div className="bg-[#601410] w-full max-w-sm rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-[#8C1D18] animate-in zoom-in-95 duration-300 relative">

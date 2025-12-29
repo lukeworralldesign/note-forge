@@ -337,7 +337,7 @@ const App: React.FC = () => {
       </main>
 
       {showOverview && (
-        <div className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm" style={{ backgroundColor: 'rgba(0,0,0,0.6)', animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' }}>
+        <div className="fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-3xl" style={{ backgroundColor: 'transparent', animation: 'fizzle-blur-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards' }}>
           <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col">
             <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
               <div className="flex flex-col">

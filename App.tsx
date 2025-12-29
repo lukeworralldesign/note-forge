@@ -122,12 +122,26 @@ const App: React.FC = () => {
 
   const handleNoteSave = useCallback(async (content: string) => {
     if (editingNoteId) {
-      setNotes(prev => prev.map(n => n.id === editingNoteId ? { ...n, content, aiStatus: 'processing' } : n));
-      const aiResult = await processNoteWithAI(content);
-      const embedding = await getLocalEmbedding(content);
-      setNotes(prev => prev.map(n => n.id === editingNoteId ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
+      const targetId = editingNoteId; // Capture ID before clearing state
+      
+      // 1. CLEAR UI STATE IMMEDIATELY - THIS FIXES THE "NOT CLOSING" BUG
       setEditingNoteId(null);
       setEditContent('');
+      
+      // 2. Update note to 'processing' state in the background
+      setNotes(prev => prev.map(n => n.id === targetId ? { ...n, content, aiStatus: 'processing' } : n));
+      
+      try {
+        // 3. Perform AI analysis in the background
+        const aiResult = await processNoteWithAI(content);
+        const embedding = await getLocalEmbedding(content);
+        
+        // 4. Update the note with the final AI-refined metadata
+        setNotes(prev => prev.map(n => n.id === targetId ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
+      } catch (e) {
+        console.error("Background AI update failed during edit", e);
+        setNotes(prev => prev.map(n => n.id === targetId ? { ...n, aiStatus: 'error' } : n));
+      }
     } else {
       const newId = crypto.randomUUID();
       const newNote: Note = {

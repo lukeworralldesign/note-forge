@@ -62,14 +62,13 @@ const TheForge: React.FC<TheForgeProps> = ({
     const trimmedContent = content.trim();
     if (!trimmedContent) return;
     
-    // Call the parent save handler
+    // Call the parent save handler (App.tsx now handles the instant close logic)
     onSave(trimmedContent);
     
     if (isEditing) {
-      // For edit mode, we want to "close" the interaction
-      // Blur the textarea to dismiss mobile keyboards and close the focus state
+      // Forcefully blur the textarea to dismiss focus rings and mobile keyboards
       textareaRef.current?.blur();
-      // App.tsx handles setEditingNoteId(null) which switches isEditing to false
+      // Note: setContent('') is not needed here as the component is about to unmount/switch state
     } else {
       // Clear local state immediately for instant feedback, matching "New Note" behavior
       setContent('');

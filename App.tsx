@@ -63,23 +63,31 @@ const App: React.FC = () => {
   const [isShareLaunch, setIsShareLaunch] = useState(false);
   const [shareStatus, setShareStatus] = useState<'active' | 'closing' | 'idle'>('idle');
 
-  // Enhanced Swipe States
+  // Gesture State
   const [isSwiping, setIsSwiping] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0); 
+  const [pullOffset, setPullOffset] = useState(0); 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
   const [wasSwipedOpen, setWasSwipedOpen] = useState(false); 
   const touchStartPos = useRef<{ x: number, y: number, time: number } | null>(null);
   const lastGestureEndTime = useRef<number>(0);
-  const swipeLockedOn = useRef<'insights' | 'overview' | null>(null);
+  const swipeLockedOn = useRef<'insights' | 'overview' | 'pull' | null>(null);
   const screenWidth = useRef(window.innerWidth);
+  const screenHeight = useRef(window.innerHeight);
 
   useEffect(() => {
-    const handleResize = () => { screenWidth.current = window.innerWidth; };
+    const handleResize = () => { 
+        screenWidth.current = window.innerWidth;
+        screenHeight.current = window.innerHeight;
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (Date.now() - lastGestureEndTime.current < 250) return;
+    // Prevent starting new gesture if refreshing or too soon after last one
+    if (Date.now() - lastGestureEndTime.current < 250 || isRefreshing) return;
 
     touchStartPos.current = {
       x: e.touches[0].clientX,
@@ -88,93 +96,103 @@ const App: React.FC = () => {
     };
     setIsSwiping(false);
     setSwipeOffset(0);
+    setPullOffset(0);
     swipeLockedOn.current = null;
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartPos.current) return;
+    if (!touchStartPos.current || isRefreshing) return;
     const currentX = e.touches[0].clientX;
     const currentY = e.touches[0].clientY;
     const deltaX = currentX - touchStartPos.current.x;
     const deltaY = currentY - touchStartPos.current.y;
 
     if (!isSwiping) {
-      // Threshold for initiating horizontal swipe
-      if (Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+
+      // Decision matrix for gesture locking
+      if (absX > 15 && absX > absY * 1.5) {
         setIsSwiping(true);
-        
-        // Lock the gesture based on current modal context
-        if (showInsights) {
-          swipeLockedOn.current = 'insights';
-        } else if (showOverview) {
-          swipeLockedOn.current = 'overview';
-        } else {
-          // In main view: deltaX > 0 opens Insights (left side), deltaX < 0 opens Overview (right side)
-          swipeLockedOn.current = deltaX > 0 ? 'insights' : 'overview';
-        }
-      } else if (Math.abs(deltaY) > 20) {
+        if (showInsights) swipeLockedOn.current = 'insights';
+        else if (showOverview) swipeLockedOn.current = 'overview';
+        else swipeLockedOn.current = deltaX > 0 ? 'insights' : 'overview';
+      } else if (deltaY > 15 && absY > absX * 1.5 && window.scrollY === 0 && !showInsights && !showOverview) {
+        setIsSwiping(true);
+        swipeLockedOn.current = 'pull';
+      } else if (absY > 20) {
         touchStartPos.current = null;
         return;
       }
     }
 
     if (isSwiping) {
-      // Direct Directional Locking Logic
-      if (showInsights) {
-        // We are at center, swiping left (negative deltaX) moves Insights drawer off-screen
-        setSwipeOffset(Math.min(0, deltaX));
-      } else if (showOverview) {
-        // We are at center, swiping right (positive deltaX) moves Overview drawer off-screen
-        setSwipeOffset(Math.max(0, deltaX));
-      } else {
-        // Main view: Open Insights (positive deltaX) or Overview (negative deltaX)
-        if (swipeLockedOn.current === 'insights') {
-          setSwipeOffset(Math.max(0, deltaX));
-        } else {
-          setSwipeOffset(Math.min(0, deltaX));
-        }
+      if (swipeLockedOn.current === 'pull') {
+        // Vertical Rubber-banding capped at 25% screen height
+        const maxStretch = screenHeight.current * 0.25;
+        const pullDistance = Math.max(0, deltaY);
+        const resistance = 0.4;
+        const calculatedOffset = pullDistance * resistance;
+        setPullOffset(Math.min(calculatedOffset, maxStretch));
+        if (e.cancelable) e.preventDefault();
+      } else if (swipeLockedOn.current === 'insights') {
+        setSwipeOffset(showInsights ? Math.min(0, deltaX) : Math.max(0, deltaX));
+        if (e.cancelable) e.preventDefault();
+      } else if (swipeLockedOn.current === 'overview') {
+        setSwipeOffset(showOverview ? Math.max(0, deltaX) : Math.min(0, deltaX));
+        if (e.cancelable) e.preventDefault();
       }
-      if (e.cancelable) e.preventDefault();
     }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStartPos.current || !isSwiping) {
+    if (!touchStartPos.current || !isSwiping || isRefreshing) {
       touchStartPos.current = null;
       setIsSwiping(false);
+      setPullOffset(0);
       return;
     }
 
     const deltaX = e.changedTouches[0].clientX - touchStartPos.current.x;
     const deltaTime = Date.now() - touchStartPos.current.time;
-    const velocity = Math.abs(deltaX) / (deltaTime || 1); 
+    const velocityX = Math.abs(deltaX) / (deltaTime || 1); 
     const threshold = screenWidth.current * 0.25; 
     const velocityThreshold = 0.3;
 
     let actionTriggered = false;
 
-    if (showInsights && swipeLockedOn.current === 'insights') {
-      // Close Insights (Left side drawer) - requires swipe left
-      if (deltaX < -threshold || (velocity > velocityThreshold && deltaX < 0)) {
+    if (swipeLockedOn.current === 'pull') {
+        // Threshold check for triggering refresh
+        if (pullOffset > 80) {
+            setIsRefreshing(true);
+            setPullOffset(80); // Snap to a visible loading position
+            setTimeout(() => {
+                // Use location.replace for a cleaner reload that doesn't mess up history
+                window.location.replace(window.location.href);
+            }, 800);
+            actionTriggered = true;
+        } else {
+            setPullOffset(0);
+        }
+    } else if (showInsights && swipeLockedOn.current === 'insights') {
+      if (deltaX < -threshold || (velocityX > velocityThreshold && deltaX < 0)) {
         setShowInsights(false);
         actionTriggered = true;
       }
     } else if (showOverview && swipeLockedOn.current === 'overview') {
-      // Close Overview (Right side drawer) - requires swipe right
-      if (deltaX > threshold || (velocity > velocityThreshold && deltaX > 0)) {
+      if (deltaX > threshold || (velocityX > velocityThreshold && deltaX > 0)) {
         setShowOverview(false);
         actionTriggered = true;
       }
     } else if (!showInsights && !showOverview) {
-      // Opening from main view
       if (swipeLockedOn.current === 'overview' && deltaX < 0) {
-        if (deltaX < -threshold || (velocity > velocityThreshold)) {
+        if (deltaX < -threshold || (velocityX > velocityThreshold)) {
           setWasSwipedOpen(true);
           setShowOverview(true);
           actionTriggered = true;
         }
       } else if (swipeLockedOn.current === 'insights' && deltaX > 0) {
-        if (deltaX > threshold || (velocity > velocityThreshold)) {
+        if (deltaX > threshold || (velocityX > velocityThreshold)) {
           setShowInsights(true);
           actionTriggered = true;
         }
@@ -188,6 +206,8 @@ const App: React.FC = () => {
     touchStartPos.current = null;
     setIsSwiping(false);
     setSwipeOffset(0);
+    // Don't reset pullOffset if we are currently in the refresh "frozen" state
+    if (!actionTriggered) setPullOffset(0);
   };
 
   const toggleOverviewProgrammatically = (open: boolean) => {
@@ -449,13 +469,8 @@ const App: React.FC = () => {
 
   const getOverviewTransform = () => {
     if (isSwiping && swipeLockedOn.current === 'overview') {
-      if (showOverview) {
-        // Swipe right (positive swipeOffset) to reveal background
-        return `translateX(${Math.max(0, swipeOffset)}px)`;
-      } else {
-        // Swipe left (negative swipeOffset) to pull drawer from right
-        return `translateX(calc(100% + ${Math.min(0, swipeOffset)}px))`;
-      }
+      if (showOverview) return `translateX(${Math.max(0, swipeOffset)}px)`;
+      else return `translateX(calc(100% + ${Math.min(0, swipeOffset)}px))`;
     }
     return showOverview ? 'translateX(0)' : 'translateX(100%)';
   };
@@ -464,20 +479,35 @@ const App: React.FC = () => {
     const maxOpacity = 0.4;
     if (isSwiping) {
       const progress = Math.abs(swipeOffset) / screenWidth.current;
-      if (showOverview || showInsights) {
-        return Math.max(0, maxOpacity - (progress * maxOpacity));
-      } else {
-        return Math.min(maxOpacity, progress * maxOpacity * 3);
-      }
+      if (showOverview || showInsights) return Math.max(0, maxOpacity - (progress * maxOpacity));
+      else return Math.min(maxOpacity, progress * maxOpacity * 3);
     }
     return (showOverview || showInsights) ? maxOpacity : 0;
   };
 
   const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || showInsights || isSwiping || isShareLaunch) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
 
+  // Pull indicator rotation/scaling logic
+  const pullProgress = Math.min(1, pullOffset / 80);
+  const pullRotation = pullOffset * 2.5;
+  const pullScale = 0.5 + (pullProgress * 0.7);
+
   return (
     <div className="min-h-dvh flex flex-col transition-colors duration-500 relative overflow-x-hidden touch-pan-y" style={{ backgroundColor: theme.bg }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
       
+      {/* Pull to Refresh Indicator - Dynamic Snap behavior */}
+      <div 
+        className={`fixed top-0 left-0 right-0 z-[1000] flex justify-center pointer-events-none transition-opacity duration-300 ${pullOffset > 10 || isRefreshing ? 'opacity-100' : 'opacity-0'}`}
+        style={{ transform: `translateY(${Math.min(pullOffset - 50, 60)}px)` }}
+      >
+        <div 
+          className="transition-transform duration-300" 
+          style={{ transform: `rotate(${pullRotation}deg) scale(${isRefreshing ? 1.4 : pullScale})` }}
+        >
+           <FidgetStar sizeClass="w-12 h-12" colorClass={isRefreshing ? 'text-[#FFDAD6]' : theme.primaryText} />
+        </div>
+      </div>
+
       {isShareLaunch && (
         <div className={`fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[40px] transition-all duration-700 ${shareStatus === 'closing' ? 'opacity-0 scale-110 pointer-events-none' : 'opacity-100 scale-100'}`}>
           <div className="animate-in zoom-in duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]">
@@ -498,65 +528,70 @@ const App: React.FC = () => {
         backdropOpacity={getBackdropOpacity()}
       />
 
-      <header className={`pt-safe pb-4 px-5 max-w-5xl w-full mx-auto flex items-center justify-between ${backgroundBlurClasses}`}>
-        <div className="flex flex-col pt-8">
-          <h1 onClick={() => setLogoVarIdx(p => (p + 1) % LOGO_VARIATIONS.length)} className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight cursor-pointer select-none transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]" style={{ fontVariationSettings: logoVar.fontVariationSettings }}>note-forge</h1>
-          <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
-             {isIndexing || isReprocessingAI ? (<span className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} animate-ping`}></div>{isReprocessingAI ? 'AI Knowledge Rebuild' : 'Index Initializing'}</span>) : ("INTELLIGENT NOTE TAKING")}
+      <div 
+        className={`flex-1 flex flex-col ${isRefreshing ? 'transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]' : 'transition-transform duration-300 ease-out'}`}
+        style={{ transform: `translateY(${pullOffset}px)` }}
+      >
+        <header className={`pt-safe pb-4 px-5 max-w-5xl w-full mx-auto flex items-center justify-between ${backgroundBlurClasses}`}>
+          <div className="flex flex-col pt-8">
+            <h1 onClick={() => setLogoVarIdx(p => (p + 1) % LOGO_VARIATIONS.length)} className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight cursor-pointer select-none transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]" style={{ fontVariationSettings: logoVar.fontVariationSettings }}>note-forge</h1>
+            <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
+               {isIndexing || isReprocessingAI ? (<span className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} animate-ping`}></div>{isReprocessingAI ? 'AI Knowledge Rebuild' : 'Index Initializing'}</span>) : ("INTELLIGENT NOTE TAKING")}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-4 pt-8">
-          {notes.length > 0 && <FidgetStar sizeClass="w-8 h-8" colorClass={geminiError ? 'text-[#FFB4AB]' : theme.primaryText} />}
-          <button onClick={() => toggleOverviewProgrammatically(true)} className={`w-12 h-12 rounded-full ${theme.primaryBg} ${theme.onPrimaryText} flex items-center justify-center font-black text-lg shadow-xl transition-all active:scale-90`}>{notes.length}</button>
-        </div>
-      </header>
+          <div className="flex items-center gap-4 pt-8">
+            {notes.length > 0 && <FidgetStar sizeClass="w-8 h-8" colorClass={geminiError ? 'text-[#FFB4AB]' : theme.primaryText} />}
+            <button onClick={() => toggleOverviewProgrammatically(true)} className={`w-12 h-12 rounded-full ${theme.primaryBg} ${theme.onPrimaryText} flex items-center justify-center font-black text-lg shadow-xl transition-all active:scale-90`}>{notes.length}</button>
+          </div>
+        </header>
 
-      <main className="px-5 max-w-5xl w-full mx-auto flex-1">
-        <div className={`mb-10 relative group ${backgroundBlurClasses}`}>
-          <div className={`absolute inset-y-0 left-6 flex items-center pointer-events-none ${theme.subtleText} group-focus-within:${theme.primaryText} transition-colors opacity-40`}><span className="material-symbols-rounded">search</span></div>
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search notes..." className={`w-full ${theme.surface} h-16 pl-16 pr-8 rounded-[1.5rem] text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none focus:ring-2 ${theme.focusRing} transition-all shadow-lg border border-white/5`} />
-        </div>
+        <main className="px-5 max-w-5xl w-full mx-auto flex-1">
+          <div className={`mb-10 relative group ${backgroundBlurClasses}`}>
+            <div className={`absolute inset-y-0 left-6 flex items-center pointer-events-none ${theme.subtleText} group-focus-within:${theme.primaryText} transition-colors opacity-40`}><span className="material-symbols-rounded">search</span></div>
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search notes..." className={`w-full ${theme.surface} h-16 pl-16 pr-8 rounded-[1.5rem] text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none focus:ring-2 ${theme.focusRing} transition-all shadow-lg border border-white/5`} />
+          </div>
 
-        <div className={`transition-all duration-400 ${(showOverview || showInsights || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
-           <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
-        </div>
+          <div className={`transition-all duration-400 ${(showOverview || showInsights || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+             <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
+          </div>
 
-        <div className={`mt-10 ${backgroundBlurClasses}`}>
-          <div className="flex items-center gap-6 mb-8">
-            <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme.subtleText} opacity-30`}>{searchQuery ? 'Neural Matching' : 'Recent Collections'}</span>
-            <div className="h-[1px] flex-1 bg-white/5"></div>
+          <div className={`mt-10 ${backgroundBlurClasses}`}>
+            <div className="flex items-center gap-6 mb-8">
+              <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme.subtleText} opacity-30`}>{searchQuery ? 'Neural Matching' : 'Recent Collections'}</span>
+              <div className="h-[1px] flex-1 bg-white/5"></div>
+            </div>
+            <div className="masonry-grid">
+              {filteredNotes.length > 0 ? filteredNotes.map(note => (
+                <div id={`note-${note.id}`} key={note.id} className="anti-alias-item">
+                  <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={(n) => {setEditingNoteId(n.id); setEditContent(n.content); window.scrollTo({top:0, behavior:'smooth'})}} theme={theme} serviceKeys={serviceKeys} />
+                </div>
+              )) : (
+                <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20">
+                  <span className="material-symbols-rounded text-6xl mb-4">note_stack</span>
+                  <p className="text-sm font-bold tracking-widest uppercase">No Records Found</p>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="masonry-grid">
-            {filteredNotes.length > 0 ? filteredNotes.map(note => (
-              <div id={`note-${note.id}`} key={note.id} className="anti-alias-item">
-                <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={(n) => {setEditingNoteId(n.id); setEditContent(n.content); window.scrollTo({top:0, behavior:'smooth'})}} theme={theme} serviceKeys={serviceKeys} />
-              </div>
-            )) : (
-              <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20">
-                <span className="material-symbols-rounded text-6xl mb-4">note_stack</span>
-                <p className="text-sm font-bold tracking-widest uppercase">No Records Found</p>
-              </div>
-            )}
+          
+          <div className={`pb-safe ${backgroundBlurClasses}`}>
+            <ContextManager modelTier={modelTier} onTierChange={setModelTier} theme={theme} />
+            <KeyVault theme={theme} onKeysUpdated={setServiceKeys} />
+            <div className="flex flex-row items-stretch justify-center gap-3 mt-8 mb-12 w-full pb-8">
+              <DataTransfer notes={notes} onImport={handleImportNotes} theme={theme} className="flex-[1.5]" />
+              {notes.length > 0 && (
+                <div className={`p-1 flex-1 flex rounded-full border border-white/5 ${theme.surface} shadow-lg transition-colors duration-500 h-12`}>
+                  <button onClick={handleRefreshMetadata} disabled={isReprocessingAI} className={`w-full inline-flex items-center justify-center gap-2 h-full rounded-full ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500 ${isReprocessingAI ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'} text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}>
+                    <span className={`material-symbols-rounded text-lg`}>auto_awesome</span>
+                    <span>{isReprocessingAI ? `${Math.round((refreshProgress?.current || 0) / (refreshProgress?.total || 1) * 100)}%` : 'Refresh AI'}</span>
+                  </button>
+                </div>
+              )}
+              <button onClick={() => window.location.reload()} className={`w-12 h-12 rounded-full border border-white/5 ${theme.surface} flex items-center justify-center ${theme.primaryText} shadow-lg active:scale-90 transition-all hover:bg-white/5`} title="Reload Page"><span className="material-symbols-rounded text-xl">refresh</span></button>
+            </div>
           </div>
-        </div>
-        
-        <div className={`pb-safe ${backgroundBlurClasses}`}>
-          <ContextManager modelTier={modelTier} onTierChange={setModelTier} theme={theme} />
-          <KeyVault theme={theme} onKeysUpdated={setServiceKeys} />
-          <div className="flex flex-row items-stretch justify-center gap-3 mt-8 mb-12 w-full pb-8">
-            <DataTransfer notes={notes} onImport={handleImportNotes} theme={theme} className="flex-[1.5]" />
-            {notes.length > 0 && (
-              <div className={`p-1 flex-1 flex rounded-full border border-white/5 ${theme.surface} shadow-lg transition-colors duration-500 h-12`}>
-                <button onClick={handleRefreshMetadata} disabled={isReprocessingAI} className={`w-full inline-flex items-center justify-center gap-2 h-full rounded-full ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500 ${isReprocessingAI ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'} text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}>
-                  <span className={`material-symbols-rounded text-lg`}>auto_awesome</span>
-                  <span>{isReprocessingAI ? `${Math.round((refreshProgress?.current || 0) / (refreshProgress?.total || 1) * 100)}%` : 'Refresh AI'}</span>
-                </button>
-              </div>
-            )}
-            <button onClick={() => window.location.reload()} className={`w-12 h-12 rounded-full border border-white/5 ${theme.surface} flex items-center justify-center ${theme.primaryText} shadow-lg active:scale-90 transition-all hover:bg-white/5`} title="Reload Page"><span className="material-symbols-rounded text-xl">refresh</span></button>
-          </div>
-        </div>
-      </main>
+        </main>
+      </div>
 
       <div className={`fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm transition-transform duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] touch-pan-y ${isSwiping && swipeLockedOn.current === 'overview' ? 'duration-0' : ''}`} style={{ backgroundColor: getFocusModeOverlayColor(theme.bg, getBackdropOpacity()), transform: getOverviewTransform(), visibility: (showOverview || (isSwiping && swipeLockedOn.current === 'overview')) ? 'visible' : 'hidden' }}>
         <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col pointer-events-auto pt-safe pb-safe">

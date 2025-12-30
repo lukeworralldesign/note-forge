@@ -6,11 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>note-forge</title>
     
+    <!-- Google Identity Services -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
     <!-- Prioritize Font Connections -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     
-    <!-- Load Icon Fonts with display=block to prevent fallback text flicker -->
+    <!-- Load Icon Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..160&display=block" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,GRAD,ROND@6..144,-10..0,25..151,1..1000,0..100,0..100&display=swap" rel="stylesheet">
 
@@ -19,95 +22,75 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="note-forge">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="note-forge">
-    
-    <!-- Favicons & Touch Icons -->
-    <link rel="icon" type="image/png" sizes="32x32" href="resources/icon-192x192.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="resources/icon-192x192.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="resources/apple-touch-icon.png">
-    <link rel="apple-touch-icon" href="resources/icon-192x192.png">
     
     <link rel="manifest" href="manifest.json">
 
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
-        html {
+        html, body {
             height: 100%;
             width: 100%;
-        }
-        body {
-            font-family: "Google Sans Flex", sans-serif;
-            font-optical-sizing: auto;
-            font-style: normal;
-            font-variation-settings: "slnt" 0, "wdth" 100, "GRAD" 0, "ROND" 0;
-            background-color: #191A12;
-            color: #E3E2E6;
+            margin: 0;
+            padding: 0;
+            background-color: #191A12; /* Match Flash theme default */
+            overscroll-behavior: none;
             -webkit-tap-highlight-color: transparent;
-            overscroll-behavior-y: none;
+            font-family: "Google Sans Flex", sans-serif;
+            color: #E3E2E6;
+            overflow: hidden;
+        }
+
+        #root { 
             height: 100%;
             width: 100%;
-            padding-left: env(safe-area-inset-left);
-            padding-right: env(safe-area-inset-right);
-            padding-bottom: env(safe-area-inset-bottom);
+            display: flex;
+            flex-direction: column;
+            position: relative;
         }
 
-        .google-sans-flex {
-            font-family: "Google Sans Flex", sans-serif;
-            font-optical-sizing: auto;
-            font-style: normal;
-        }
-        
-        #root {
-            height: 100%;
-            overflow-y: auto;
-            overflow-x: hidden;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        .masonry-grid {
-            column-gap: 1rem;
-        }
-        .masonry-item {
-            break-inside: avoid;
-            margin-bottom: 1rem;
-        }
-        @media (min-width: 768px) { .masonry-grid { column-count: 2; column-gap: 1.5rem; } .masonry-item { margin-bottom: 1.5rem; } }
-        @media (min-width: 1200px) { .masonry-grid { column-count: 3; } }
-
-        .no-scrollbar::-webkit-scrollbar {
+        /* Standard scrollbar removal for cleaner immersion */
+        ::-webkit-scrollbar {
             display: none;
         }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+
+        /* Pixel 7 Pro Inspired Corner Masks - Bottom Only */
+        .corner-mask {
+            position: fixed;
+            bottom: 0;
+            width: 36px;
+            height: 36px;
+            z-index: 99999;
+            pointer-events: none;
+        }
+        .corner-mask-left {
+            left: 0;
+            background: radial-gradient(circle at 100% 0%, transparent 36px, #0E0F09 37px);
+        }
+        .corner-mask-right {
+            right: 0;
+            background: radial-gradient(circle at 0% 0%, transparent 36px, #0E0F09 37px);
         }
 
-        .material-symbols-rounded {
-          font-variation-settings:
-          'FILL' 0,
-          'wght' 400,
-          'GRAD' 0,
-          'opsz' 24;
-          
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          vertical-align: middle;
-          
-          width: 1em;
-          height: 1em;
-          line-height: 1;
-          
-          text-transform: none;
-          letter-spacing: normal;
-          word-wrap: normal;
-          white-space: nowrap;
-          direction: ltr;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
+        .masonry-grid { column-gap: 1rem; }
+        .masonry-item { break-inside: avoid; margin-bottom: 1rem; }
+        @media (min-width: 768px) { .masonry-grid { column-count: 2; column-gap: 1.5rem; } }
+        @media (min-width: 1200px) { .masonry-grid { column-count: 3; } }
+
+        /* Smooth Material Animations */
+        @keyframes staggered-materialize {
+            0% { opacity: 0; transform: translateY(20px) scale(0.95); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
         }
+
+        .anti-alias-item {
+            -webkit-font-smoothing: antialiased;
+            backface-visibility: hidden;
+        }
+
+        /* Safe Area Padding Helpers */
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .pt-safe { padding-top: env(safe-area-inset-top); }
     </style>
 <script>
     window.process = { env: { NODE_ENV: 'production' } };
@@ -127,13 +110,12 @@
   }
 }
 </script>
-<script type="module">
-    import { Buffer } from 'buffer';
-    window.Buffer = Buffer;
-</script>
 </head>
-<body class="overflow-hidden">
+<body>
     <div id="root"></div>
+    <!-- Hardware mirroring overlays -->
+    <div class="corner-mask corner-mask-left"></div>
+    <div class="corner-mask corner-mask-right"></div>
     <script type="module" src="index.tsx"></script>
 </body>
 </html>

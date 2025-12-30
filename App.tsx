@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Note, ModelTier, ThemeColors, getCategoryStyle } from './types';
-import { setModelTier as setServiceTier, getLocalEmbedding, initLocalEmbedder } from './services/geminiService';
+import { Note, ModelTier, ThemeColors, getCategoryStyle, ServiceKeys } from './types';
+import { setModelTier as setServiceTier, getLocalEmbedding, initLocalEmbedder, processNoteWithAI } from './services/geminiService';
 import TheForge from './components/TheForge';
 import NoteCard from './components/NoteCard';
 import FidgetStar from './components/FidgetStar';
 import ContextManager from './components/ContextManager';
+import KeyVault from './components/KeyVault';
 import DataTransfer from './components/DataTransfer';
-import { processNoteWithAI } from './services/geminiService';
 // @ts-ignore
 import { create, insert, search, remove, update } from '@orama/orama';
 
@@ -23,14 +23,23 @@ const THEMES: Record<ModelTier, ThemeColors> = {
 };
 
 const LOGO_VARIATIONS = [
-  { wght: 400, wdth: 100, slnt: 0, GRAD: 0, ROND: 0 },
-  { wght: 400, wdth: 100, slnt: -10, GRAD: 0, ROND: 0 },
-  { wght: 1000, wdth: 100, slnt: 0, GRAD: 0, ROND: 0 },
-  { wght: 1000, wdth: 100, slnt: 0, GRAD: 100, ROND: 100 },
+  { wght: 400, wdth: 100, fontVariationSettings: '"wght" 400, "wdth" 100, "slnt" 0, "GRAD" 0, "ROND" 0' },
+  { wght: 400, wdth: 100, fontVariationSettings: '"wght" 400, "wdth" 100, "slnt" -10, "GRAD" 0, "ROND" 0' },
+  { wght: 1000, wdth: 100, fontVariationSettings: '"wght" 1000, "wdth" 100, "slnt" 0, "GRAD" 0, "ROND" 0' },
+  { wght: 1000, wdth: 100, fontVariationSettings: '"wght" 1000, "wdth" 100, "slnt" 0, "GRAD" 100, "ROND" 100' },
 ];
 
 const App: React.FC = () => {
-  const [notes, setNotes] = useState<Note[]>([]);
+  // Lazy initialization to prevent race conditions with Share Target captures
+  const [notes, setNotes] = useState<Note[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [geminiError, setGeminiError] = useState(false);
   const [logoVarIdx, setLogoVarIdx] = useState(0);
@@ -38,13 +47,21 @@ const App: React.FC = () => {
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [showOverview, setShowOverview] = useState(false);
-  const [modelTier, setModelTier] = useState<ModelTier>('flash');
+  const [modelTier, setModelTier] = useState<ModelTier>(() => {
+    const stored = localStorage.getItem('note_forge_model_tier') as ModelTier;
+    return ['flash', 'pro'].includes(stored) ? stored : 'flash';
+  });
+  const [serviceKeys, setServiceKeys] = useState<ServiceKeys>({});
   const [oramaDb, setOramaDb] = useState<any>(null);
   const [searchResults, setSearchResults] = useState<string[] | null>(null);
   const [isIndexing, setIsIndexing] = useState(false);
   const [isReprocessingAI, setIsReprocessingAI] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<{ current: number, total: number } | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
+
+  // --- Share Logic State ---
+  const [isShareLaunch, setIsShareLaunch] = useState(false);
+  const [shareStatus, setShareStatus] = useState<'active' | 'closing' | 'idle'>('idle');
 
   // --- Interactive Gesture State ---
   const [isSwiping, setIsSwiping] = useState(false);
@@ -71,12 +88,10 @@ const App: React.FC = () => {
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!touchStartPos.current) return;
-
     const currentX = e.touches[0].clientX;
     const currentY = e.touches[0].clientY;
     const deltaX = currentX - touchStartPos.current.x;
     const deltaY = currentY - touchStartPos.current.y;
-
     if (!isSwiping) {
       if (Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
         setIsSwiping(true);
@@ -85,16 +100,10 @@ const App: React.FC = () => {
         return;
       }
     }
-
     if (isSwiping) {
       if (e.cancelable) e.preventDefault();
-      
       let offset = deltaX;
-      if (!showOverview) {
-        offset = Math.min(0, deltaX);
-      } else {
-        offset = Math.max(0, deltaX);
-      }
+      if (!showOverview) { offset = Math.min(0, deltaX); } else { offset = Math.max(0, deltaX); }
       setSwipeOffset(offset);
     }
   };
@@ -105,18 +114,14 @@ const App: React.FC = () => {
       setIsSwiping(false);
       return;
     }
-
     const deltaX = e.changedTouches[0].clientX - touchStartPos.current.x;
     const deltaTime = Date.now() - touchStartPos.current.time;
     const velocity = Math.abs(deltaX) / (deltaTime || 1); 
-    
     touchStartPos.current = null;
     setIsSwiping(false);
     setSwipeOffset(0);
-
     const threshold = screenWidth.current * 0.25; 
     const velocityThreshold = 0.4; 
-
     if (!showOverview) {
       if (deltaX < -threshold || (velocity > velocityThreshold && deltaX < 0)) {
         setWasSwipedOpen(true);
@@ -135,8 +140,6 @@ const App: React.FC = () => {
     setShowOverview(open);
   };
 
-  // --- End Gesture Logic ---
-
   useEffect(() => {
     const initEngine = async () => {
       setIsIndexing(true);
@@ -144,11 +147,7 @@ const App: React.FC = () => {
         await initLocalEmbedder(); 
         const db = await create({
           schema: {
-            content: 'string',
-            headline: 'string',
-            category: 'string',
-            tags: 'string[]',
-            embedding: 'vector[384]' 
+            content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' 
           }
         });
         setOramaDb(db);
@@ -175,8 +174,7 @@ const App: React.FC = () => {
               tags: note.tags,
               embedding: note.embedding
             });
-          } catch (e) {
-          }
+          } catch (e) { }
         }
       }
     };
@@ -184,31 +182,20 @@ const App: React.FC = () => {
   }, [notes, oramaDb, isReprocessingAI]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
-      try {
-        setNotes(JSON.parse(saved));
-      } catch (e) { console.error("Load failed", e); }
-    }
-    const storedTier = localStorage.getItem('note_forge_model_tier') as ModelTier;
-    const validTier = ['flash', 'pro'].includes(storedTier) ? storedTier : 'flash';
-    setModelTier(validTier);
-    setServiceTier(validTier);
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(notes));
   }, [notes]);
 
   useEffect(() => {
     const theme = THEMES[modelTier];
+    document.documentElement.style.backgroundColor = theme.bg;
     document.body.style.backgroundColor = theme.bg;
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
     if (metaThemeColor) metaThemeColor.setAttribute('content', theme.bg);
     setServiceTier(modelTier);
+    localStorage.setItem('note_forge_model_tier', modelTier);
   }, [modelTier]);
 
-  const handleNoteSave = useCallback(async (content: string) => {
+  const handleNoteSave = useCallback(async (content: string, skipUIReset = false) => {
     if (editingNoteId) {
       const targetId = editingNoteId;
       setEditingNoteId(null);
@@ -218,8 +205,8 @@ const App: React.FC = () => {
         const aiResult = await processNoteWithAI(content);
         const embedding = await getLocalEmbedding(content);
         setNotes(prev => prev.map(n => n.id === targetId ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
+        return aiResult;
       } catch (e) {
-        console.error("Background AI update failed during edit", e);
         setNotes(prev => prev.map(n => n.id === targetId ? { ...n, aiStatus: 'error' } : n));
       }
     } else {
@@ -232,49 +219,106 @@ const App: React.FC = () => {
         const aiResult = await processNoteWithAI(content);
         const embedding = await getLocalEmbedding(content);
         setNotes(current => current.map(n => n.id === newId ? { ...n, aiStatus: 'completed', ...aiResult, embedding: embedding || undefined } : n));
+        return aiResult;
       } catch {
         setGeminiError(true);
         setNotes(current => current.map(n => n.id === newId ? { ...n, aiStatus: 'error', category: 'Thoughts', headline: 'Note ' + new Date().toLocaleTimeString() } : n));
+        throw new Error("AI Failed");
       }
     }
   }, [editingNoteId]);
+
+  // --- BACKGROUND CLERK: Automatically process pending AI tasks ---
+  useEffect(() => {
+    const pending = notes.filter(n => n.aiStatus === 'idle');
+    if (pending.length > 0 && !isReprocessingAI) {
+      const processPending = async () => {
+        for (const note of pending) {
+          try {
+            const aiResult = await processNoteWithAI(note.content);
+            const embedding = await getLocalEmbedding(note.content);
+            setNotes(prev => prev.map(n => n.id === note.id ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
+          } catch (e) {
+            setNotes(prev => prev.map(n => n.id === note.id ? { ...n, aiStatus: 'error' } : n));
+          }
+        }
+      };
+      processPending();
+    }
+  }, [notes, isReprocessingAI]);
+
+  // --- QUIET SHARE HANDLER: Instant Capture + Persistence Fix ---
+  useEffect(() => {
+    const parsedUrl = new URL(window.location.href);
+    const sharedTitle = parsedUrl.searchParams.get('title');
+    const sharedText = parsedUrl.searchParams.get('text');
+    const sharedUrl = parsedUrl.searchParams.get('url');
+
+    if (sharedTitle || sharedText || sharedUrl) {
+      setIsShareLaunch(true);
+      setShareStatus('active');
+      
+      let combinedContent = "";
+      if (sharedTitle) combinedContent += `${sharedTitle}\n`;
+      if (sharedText) combinedContent += `${sharedText}\n`;
+      if (sharedUrl) combinedContent += `Source: ${sharedUrl}`;
+      
+      const finalContent = combinedContent.trim();
+      if (finalContent) {
+        const newId = crypto.randomUUID();
+        const newNote: Note = {
+          id: newId, 
+          content: finalContent, 
+          timestamp: Date.now(), 
+          aiStatus: 'idle', 
+          category: 'Captured', 
+          headline: sharedTitle || 'Incoming Resource', 
+          tags: ['Shared']
+        };
+
+        // Update state directly. The useEffect for notes will persist this to localStorage.
+        setNotes(prev => [newNote, ...prev]);
+        
+        // Wait for the visual fidget star to provide confirmation, then exit.
+        setTimeout(() => {
+          setShareStatus('closing');
+          // Clear query params immediately so a manual refresh doesn't trigger another save
+          window.history.replaceState({}, document.title, window.location.pathname);
+          
+          setTimeout(() => {
+            // window.close() only works in specific PWA / standalone contexts or if opened via script.
+            // On mobile, users typically just switch back, but we attempt a close.
+            window.close();
+            // Final fallback to hide UI if close fails
+            setIsShareLaunch(false);
+            setShareStatus('idle');
+          }, 600);
+        }, 1200);
+      } else {
+        setIsShareLaunch(false);
+      }
+    }
+  }, []);
 
   const handleRefreshMetadata = async () => {
     if (isReprocessingAI || notes.length === 0) return;
     setIsReprocessingAI(true);
     setRefreshProgress({ current: 0, total: notes.length });
-    
     try {
       const updatedNotes = [...notes];
       for (let i = 0; i < updatedNotes.length; i++) {
         setRefreshProgress({ current: i + 1, total: notes.length });
         try {
-          // Re-process with Gemini to get updated Headline, Category, Tags, and possibly new embeddings
           const aiResult = await processNoteWithAI(updatedNotes[i].content);
-          updatedNotes[i] = { 
-            ...updatedNotes[i], 
-            ...aiResult,
-            aiStatus: 'completed'
-          };
-        } catch (e) {
-          console.error(`Failed to re-process note ${i}`, e);
-          updatedNotes[i] = { ...updatedNotes[i], aiStatus: 'error' };
-        }
+          updatedNotes[i] = { ...updatedNotes[i], ...aiResult, aiStatus: 'completed' };
+        } catch (e) { updatedNotes[i] = { ...updatedNotes[i], aiStatus: 'error' }; }
       }
       setNotes(updatedNotes);
-
-      // Completely rebuild Orama index with new metadata
       if (oramaDb) {
-        const db = await create({
-          schema: {
-            content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' 
-          }
-        });
+        const db = await create({ schema: { content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' } });
         setOramaDb(db);
       }
-    } catch (err) {
-      console.error("Mass AI refresh failed", err);
-    } finally {
+    } catch (err) { } finally {
       setIsReprocessingAI(false);
       setTimeout(() => setRefreshProgress(null), 3000);
     }
@@ -294,23 +338,14 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!oramaDb || !searchQuery.trim()) {
-      setSearchResults(null);
-      return;
-    }
+    if (!oramaDb || !searchQuery.trim()) { setSearchResults(null); return; }
     const runSearch = async () => {
       const queryEmbedding = await getLocalEmbedding(searchQuery);
       const results = await search(oramaDb, {
         term: searchQuery,
         limit: 20,
         boost: { headline: 2, category: 1.5 },
-        ...(queryEmbedding ? {
-          vector: {
-            property: 'embedding',
-            value: queryEmbedding,
-            similarity: 0.6 
-          }
-        } : {})
+        ...(queryEmbedding ? { vector: { property: 'embedding', value: queryEmbedding, similarity: 0.6 } } : {})
       });
       setSearchResults(results.hits.map((h: any) => h.id));
     };
@@ -358,11 +393,8 @@ const App: React.FC = () => {
 
   const getOverviewTransform = () => {
     if (isSwiping) {
-      if (!showOverview) {
-        return `translateX(calc(100% + ${swipeOffset}px))`;
-      } else {
-        return `translateX(${swipeOffset}px)`;
-      }
+      if (!showOverview) { return `translateX(calc(100% + ${swipeOffset}px))`; }
+      else { return `translateX(${swipeOffset}px)`; }
     }
     return showOverview ? 'translateX(0)' : 'translateX(100%)';
   };
@@ -371,71 +403,43 @@ const App: React.FC = () => {
     const maxOpacity = 0.4;
     if (isSwiping) {
       const progress = Math.abs(swipeOffset) / screenWidth.current;
-      if (!showOverview) {
-        return Math.min(maxOpacity, progress * maxOpacity * 4); 
-      } else {
-        return Math.max(0, maxOpacity - (progress * maxOpacity));
-      }
+      if (!showOverview) { return Math.min(maxOpacity, progress * maxOpacity * 4); }
+      else { return Math.max(0, maxOpacity - (progress * maxOpacity)); }
     }
     return showOverview ? maxOpacity : 0;
   };
 
-  const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
+  const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || isSwiping || isShareLaunch) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
 
   return (
-    <div 
-      className="min-h-full pb-20 pt-safe-top transition-colors duration-500 relative overflow-x-hidden touch-pan-y"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      <style>{`
-        @keyframes staggered-materialize { 0% { transform: translateY(16px); filter: blur(10px); opacity: 0; } 100% { transform: translateY(0); filter: blur(0px); opacity: 1; } }
-        .anti-alias-container { perspective: 3000px; -webkit-font-smoothing: antialiased; }
-        .anti-alias-item { will-change: transform, opacity; backface-visibility: hidden; }
-        .touch-pan-y { touch-action: pan-y; }
-      `}</style>
-
-      <header className={`pt-10 pb-6 px-5 max-w-5xl mx-auto flex items-center justify-between ${backgroundBlurClasses}`}>
-        <div className="flex flex-col">
-          <h1 
-            onClick={() => setLogoVarIdx(p => (p + 1) % LOGO_VARIATIONS.length)} 
-            className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight cursor-pointer select-none transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-            style={{ 
-                fontVariationSettings: `"wght" ${logoVar.wght}, "wdth" ${logoVar.wdth}, "slnt" ${logoVar.slnt}, "GRAD" ${logoVar.GRAD}, "ROND" ${logoVar.ROND}` 
-            }}
-          >
-            note-forge
-          </h1>
-          <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
-             {isIndexing || isReprocessingAI ? (
-                <span className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} animate-ping`}></div> 
-                    {isReprocessingAI ? 'AI Knowledge Rebuild' : 'Index Initializing'}
-                </span>
-             ) : (
-                "INTELLIGENT NOTE TAKING"
-             )}
+    <div className="min-h-dvh flex flex-col transition-colors duration-500 relative overflow-x-hidden touch-pan-y" style={{ backgroundColor: theme.bg }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      
+      {/* --- QUIET MODE OVERLAY --- */}
+      {isShareLaunch && (
+        <div className={`fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[40px] transition-all duration-700 ${shareStatus === 'closing' ? 'opacity-0 scale-110 pointer-events-none' : 'opacity-100 scale-100'}`}>
+          <div className="animate-in zoom-in duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]">
+             <FidgetStar sizeClass="w-36 h-36" colorClass={theme.primaryText} />
           </div>
         </div>
-        <div className="flex items-center gap-4">
+      )}
+
+      <header className={`pt-safe pb-4 px-5 max-w-5xl w-full mx-auto flex items-center justify-between ${backgroundBlurClasses}`}>
+        <div className="flex flex-col pt-8">
+          <h1 onClick={() => setLogoVarIdx(p => (p + 1) % LOGO_VARIATIONS.length)} className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight cursor-pointer select-none transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]" style={{ fontVariationSettings: logoVar.fontVariationSettings }}>note-forge</h1>
+          <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
+             {isIndexing || isReprocessingAI ? (<span className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${theme.primaryBg} animate-ping`}></div>{isReprocessingAI ? 'AI Knowledge Rebuild' : 'Index Initializing'}</span>) : ("INTELLIGENT NOTE TAKING")}
+          </div>
+        </div>
+        <div className="flex items-center gap-4 pt-8">
           {notes.length > 0 && <FidgetStar sizeClass="w-8 h-8" colorClass={geminiError ? 'text-[#FFB4AB]' : theme.primaryText} />}
           <button onClick={() => toggleOverviewProgrammatically(true)} className={`w-12 h-12 rounded-full ${theme.primaryBg} ${theme.onPrimaryText} flex items-center justify-center font-black text-lg shadow-xl transition-all active:scale-90`}>{notes.length}</button>
         </div>
       </header>
 
-      <main className="px-5 max-w-5xl mx-auto">
+      <main className="px-5 max-w-5xl w-full mx-auto flex-1">
         <div className={`mb-10 relative group ${backgroundBlurClasses}`}>
-          <div className={`absolute inset-y-0 left-6 flex items-center pointer-events-none ${theme.subtleText} group-focus-within:${theme.primaryText} transition-colors opacity-40`}>
-            <span className="material-symbols-rounded">search</span>
-          </div>
-          <input 
-            type="text" 
-            value={searchQuery} 
-            onChange={(e) => setSearchQuery(e.target.value)} 
-            placeholder="Search notes..." 
-            className={`w-full ${theme.surface} h-16 pl-16 pr-8 rounded-[1.5rem] text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none focus:ring-2 ${theme.focusRing} transition-all shadow-lg border border-white/5`} 
-          />
+          <div className={`absolute inset-y-0 left-6 flex items-center pointer-events-none ${theme.subtleText} group-focus-within:${theme.primaryText} transition-colors opacity-40`}><span className="material-symbols-rounded">search</span></div>
+          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search notes..." className={`w-full ${theme.surface} h-16 pl-16 pr-8 rounded-[1.5rem] text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none focus:ring-2 ${theme.focusRing} transition-all shadow-lg border border-white/5`} />
         </div>
 
         <div className={`transition-all duration-400 ${(showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
@@ -448,46 +452,42 @@ const App: React.FC = () => {
             <div className="h-[1px] flex-1 bg-white/5"></div>
           </div>
           <div className="masonry-grid">
-            {filteredNotes.map(note => (
+            {filteredNotes.length > 0 ? filteredNotes.map(note => (
               <div id={`note-${note.id}`} key={note.id} className="anti-alias-item">
-                <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={(n) => {setEditingNoteId(n.id); setEditContent(n.content); window.scrollTo({top:0, behavior:'smooth'})}} theme={theme} />
+                <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={(n) => {setEditingNoteId(n.id); setEditContent(n.content); window.scrollTo({top:0, behavior:'smooth'})}} theme={theme} serviceKeys={serviceKeys} />
               </div>
-            ))}
+            )) : (
+              <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20">
+                <span className="material-symbols-rounded text-6xl mb-4">note_stack</span>
+                <p className="text-sm font-bold tracking-widest uppercase">No Records Found</p>
+              </div>
+            )}
           </div>
         </div>
         
-        <div className={`pb-20 ${backgroundBlurClasses}`}>
+        <div className={`pb-safe ${backgroundBlurClasses}`}>
           <ContextManager modelTier={modelTier} onTierChange={setModelTier} theme={theme} />
-          <div className="flex flex-row items-stretch justify-center gap-4 mt-8 mb-20 w-full">
+          <KeyVault theme={theme} onKeysUpdated={setServiceKeys} />
+          <div className="flex flex-row items-stretch justify-center gap-3 mt-8 mb-12 w-full pb-8">
             <DataTransfer notes={notes} onImport={handleImportNotes} theme={theme} className="flex-[1.5]" />
             {notes.length > 0 && (
               <div className={`p-1 flex-1 flex rounded-full border border-white/5 ${theme.surface} shadow-lg transition-colors duration-500 h-12`}>
-                <button
-                  onClick={handleRefreshMetadata}
-                  disabled={isReprocessingAI}
-                  className={`w-full inline-flex items-center justify-center gap-2 h-full rounded-full ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500 ${isReprocessingAI ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'} text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}
-                >
+                <button onClick={handleRefreshMetadata} disabled={isReprocessingAI} className={`w-full inline-flex items-center justify-center gap-2 h-full rounded-full ${theme.primaryBg} ${theme.onPrimaryText} transition-all duration-500 ${isReprocessingAI ? 'cursor-wait opacity-80' : 'active:scale-95 hover:brightness-110'} text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}>
                   <span className={`material-symbols-rounded text-lg`}>auto_awesome</span>
                   <span>{isReprocessingAI ? `${Math.round((refreshProgress?.current || 0) / (refreshProgress?.total || 1) * 100)}%` : 'Refresh AI'}</span>
                 </button>
               </div>
             )}
+            <button onClick={() => window.location.reload()} className={`w-12 h-12 rounded-full border border-white/5 ${theme.surface} flex items-center justify-center ${theme.primaryText} shadow-lg active:scale-90 transition-all hover:bg-white/5`} title="Reload Page"><span className="material-symbols-rounded text-xl">refresh</span></button>
           </div>
         </div>
       </main>
 
-      <div 
-        className={`fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm transition-transform duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] touch-pan-y ${isSwiping ? 'duration-0' : ''}`}
-        style={{ 
-          backgroundColor: getFocusModeOverlayColor(theme.bg, getBackdropOpacity()),
-          transform: getOverviewTransform(),
-          visibility: (showOverview || isSwiping) ? 'visible' : 'hidden'
-        }}
-      >
-        <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col pointer-events-auto">
+      <div className={`fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm transition-transform duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] touch-pan-y ${isSwiping ? 'duration-0' : ''}`} style={{ backgroundColor: getFocusModeOverlayColor(theme.bg, getBackdropOpacity()), transform: getOverviewTransform(), visibility: (showOverview || isSwiping) ? 'visible' : 'hidden' }}>
+        <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col pointer-events-auto pt-safe pb-safe">
           <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
             <div className="flex flex-col">
-              <h1 className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight transition-all duration-700" style={{ fontVariationSettings: `"wght" ${logoVar.wght}, "wdth" 100, "slnt" 0` }}>grid-overview</h1>
+              <h1 className="text-3xl md:text-5xl text-[#E3E2E6] tracking-tight transition-all duration-700" style={{ fontVariationSettings: '"wght" 600, "wdth" 100, "slnt" 0' }}>grid-overview</h1>
               <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>{notes.length} RECORDS SORTED BY CATEGORY</div>
             </div>
             <div className="flex items-center gap-4">
@@ -499,21 +499,14 @@ const App: React.FC = () => {
               const style = getCategoryStyle(note.category);
               const shouldAnimate = showOverview && !wasSwipedOpen && !isSwiping;
               return (
-                <div 
-                  key={note.id} 
-                  onClick={() => scrollToNote(note.id)} 
-                  className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} 
-                  style={{ animation: shouldAnimate ? `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` : 'none' }}
-                >
+                <div key={note.id} onClick={() => scrollToNote(note.id)} className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} style={{ animation: shouldAnimate ? `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` : 'none' }}>
                   <div className="flex justify-between items-center flex-shrink-0 relative z-10">
                     <span className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm" style={{ backgroundColor: style.bg, color: style.text }}>{note.category}</span>
                     <button onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }} className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"><span className="material-symbols-rounded text-lg">delete</span></button>
                   </div>
                   <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
                   <div className="mt-auto flex justify-between items-center relative z-10">
-                     <div className="flex flex-wrap gap-1">
-                        {note.tags.slice(0, 1).map((t, i) => (<span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>))}
-                     </div>
+                     <div className="flex flex-wrap gap-1">{note.tags.slice(0, 1).map((t, i) => (<span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>))}</div>
                      <span className="text-[9px] font-bold uppercase tracking-tighter opacity-40 text-[#E3E2E6]">{new Date(note.timestamp).toLocaleDateString()}</span>
                   </div>
                 </div>
@@ -523,18 +516,13 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* REFINED GLOBAL DELETE MODAL */}
       {noteToDelete && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl animate-in fade-in duration-300 overflow-hidden">
             <div className="bg-[#601410] w-full max-w-sm rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-[#8C1D18] animate-in zoom-in-95 duration-300 relative">
                 <div className="flex flex-col items-center text-center">
-                    <div className="w-16 h-16 rounded-full bg-[#3F1111] flex items-center justify-center mb-6 text-[#FFB4AB]">
-                        <span className="material-symbols-rounded text-3xl">delete</span>
-                    </div>
+                    <div className="w-16 h-16 rounded-full bg-[#3F1111] flex items-center justify-center mb-6 text-[#FFB4AB]"><span className="material-symbols-rounded text-3xl">delete</span></div>
                     <h4 className="text-2xl font-bold text-[#FFFFFF] mb-2 tracking-tight">Purge Entry?</h4>
-                    <p className="text-[#FFDAD6] mb-8 leading-relaxed px-4 opacity-90">
-                        "{noteToDelete.headline}" will be permanently removed from the neural store.
-                    </p>
+                    <p className="text-[#FFDAD6] mb-8 leading-relaxed px-4 opacity-90">"{noteToDelete.headline}" will be permanently removed.</p>
                     <div className="flex flex-col w-full gap-3">
                         <button onClick={() => deleteNote(noteToDelete.id)} className="w-full py-4 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-xs hover:bg-[#FFB4AB] hover:text-[#601410] active:scale-95 transition-all shadow-lg">Confirm Purge</button>
                         <button onClick={() => setNoteToDelete(null)} className="w-full py-4 rounded-full bg-transparent text-[#FFDAD6] font-bold uppercase tracking-widest text-xs hover:bg-black/20 active:scale-95 transition-all">Cancel</button>

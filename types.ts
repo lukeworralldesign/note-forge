@@ -20,29 +20,32 @@ export interface AIReponse {
   embedding?: number[];
 }
 
+export interface ServiceKeys {
+  tasks?: string; 
+  gemini?: string;
+  clientId?: string;
+}
+
 export type ModelTier = 'flash' | 'pro';
 
 export interface ThemeColors {
   key: ModelTier;
-  bg: string; // hex
-  surface: string; // class
-  surfaceHover: string; // class
-  surfaceBorder: string; // class
-  primaryText: string; // class
-  primaryBg: string; // class
-  onPrimaryText: string; // class
-  secondaryBg: string; // class
-  secondaryHover: string; // class
-  secondaryText: string; // class
+  bg: string;
+  surface: string;
+  surfaceHover: string;
+  surfaceBorder: string;
+  primaryText: string;
+  primaryBg: string;
+  onPrimaryText: string;
+  secondaryBg: string;
+  secondaryHover: string;
+  secondaryText: string;
   accentHex: string;
-  focusRing: string; // class
-  border: string; // class
-  subtleText: string; // class
+  focusRing: string;
+  border: string;
+  subtleText: string;
 }
 
-/**
- * Maps generic categories to vibrant styles using the Hero Colors palette.
- */
 interface CategoryStyle {
   bg: string;
   text: string;
@@ -62,7 +65,6 @@ export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
 
 export const getCategoryStyle = (category: string = 'default'): CategoryStyle => {
   const cat = category.toLowerCase();
-  // Standardize common pluralization or naming variations
   if (cat === 'list') return CATEGORY_STYLES.lists;
   if (cat === 'thought') return CATEGORY_STYLES.thoughts;
   if (cat === 'reminder') return CATEGORY_STYLES.reminders;

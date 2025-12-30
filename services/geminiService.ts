@@ -51,6 +51,7 @@ const getContextPDF = (): string | null => {
   }
 };
 
+// Fix: Use process.env.API_KEY directly as required by guidelines
 export const getTextEmbedding = async (text: string): Promise<number[] | undefined> => {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -66,6 +67,7 @@ export const getTextEmbedding = async (text: string): Promise<number[] | undefin
     }
 }
 
+// Fix: Use process.env.API_KEY exclusively and updated model aliases
 export const processNoteWithAI = async (content: string): Promise<AIReponse> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -84,21 +86,17 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
     parts.push({ text: `TAG LIBRARY: ${TAG_LIBRARY}` });
     parts.push({ text: `USER NOTE: "${content}"` });
 
-    const contentPromise = ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: modelName,
-      contents: [{ parts }],
+      contents: { parts },
       config: {
         systemInstruction: `You are an automated Knowledge Engine Librarian. 
         Analyze the note and provide metadata using the provided TAG LIBRARY.
         
         RULES:
         - Category: You MUST categorize the note into EXACTLY ONE of these: Thoughts, Ideas, Reminders, Coding, Projects, Lists, Research, or Personal.
-        - Use "Coding" for any code snippets or technical dev discussions.
-        - Use "Lists" for bulleted items or shopping lists.
-        - Use "Reminders" for time-sensitive or task-oriented prompts.
-        - Use "Projects" for high-level goal planning.
-        - Headline: MAX 5 words. Summarize the core intent.
-        - Tags: 3-5 tags from TAG LIBRARY.
+        - Headline: MAX 5 words. Summarize core intent.
+        - Tags: 3-5 tags from library.
         
         OUTPUT FORMAT: JSON ONLY.`,
         responseMimeType: "application/json",
@@ -114,7 +112,7 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
       },
     });
 
-    const [response, embedding] = await Promise.all([contentPromise, embeddingPromise]);
+    const embedding = await embeddingPromise;
     const result = JSON.parse(response.text || '{}');
     return {
       category: result.category || 'Thoughts',
@@ -123,11 +121,12 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
       embedding: embedding
     };
   } catch (error) {
-    console.error("Processing failed:", error);
+    console.error("AI Processing failed:", error);
     throw error;
   }
 };
 
+// Fix: Use process.env.API_KEY and extract response text correctly
 export const reformatNoteContent = async (content: string): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -142,7 +141,7 @@ export const reformatNoteContent = async (content: string): Promise<string> => {
 
     const response = await ai.models.generateContent({
       model: modelName,
-      contents: [{ parts }],
+      contents: { parts },
       config: {
         systemInstruction: `Reformat notes in authoritative, concise encyclopedic style. 
         No markdown, single paragraph. AUTHORITATIVE tone.`

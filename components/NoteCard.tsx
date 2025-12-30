@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Note, ThemeColors, getCategoryStyle } from '../types';
+import { Note, ThemeColors, getCategoryStyle, ServiceKeys } from '../types';
 import { reformatNoteContent } from '../services/geminiService';
 
 interface NoteCardProps {
@@ -10,17 +10,18 @@ interface NoteCardProps {
   onEdit: (note: Note) => void;
   onAiError?: () => void;
   theme: ThemeColors;
+  serviceKeys?: ServiceKeys;
 }
 
-const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, onAiError, theme }) => {
+const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, onAiError, theme, serviceKeys }) => {
   const [isReformatting, setIsReformatting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     if (!showDeleteConfirm) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowDeleteConfirm(false);
-    };
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowDeleteConfirm(false); };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [showDeleteConfirm]);
@@ -28,217 +29,182 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
   const handleExportToObsidian = async () => {
     const noteBody = note.content;
     const sanitizedHeadline = note.headline.replace(/[\\/:"*?<>|]/g, '').trim().substring(0, 50);
-    const fileName = sanitizedHeadline || `Note-${note.id.substring(0, 8)}`;
-    const obsidianUri = `obsidian://new?name=${encodeURIComponent(fileName)}&content=${encodeURIComponent(noteBody)}`;
-
-    try {
-      await navigator.clipboard.writeText(noteBody);
-    } catch (e) {
-      console.warn("Clipboard write failed during Obsidian export", e);
-    }
-    
+    const obsidianUri = `obsidian://new?name=${encodeURIComponent(sanitizedHeadline || note.id)}&content=${encodeURIComponent(noteBody)}`;
+    try { await navigator.clipboard.writeText(noteBody); } catch (e) {}
     window.location.href = obsidianUri;
   };
 
   const handleExportToKeep = async () => {
-    const title = note.headline;
-    const text = note.content;
-    const fullText = `${title}\n\n${text}`;
+    const shareData = {
+      title: note.headline,
+      text: note.content,
+    };
 
-    if (navigator.share) {
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
       try {
-        await navigator.share({
-          title: title,
-          text: fullText,
-        });
+        await navigator.share(shareData);
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 2000);
         return;
       } catch (err) {
-        console.debug("Share operation cancelled or failed", err);
+        if ((err as Error).name === 'AbortError') return;
       }
     }
 
-    try {
-      await navigator.clipboard.writeText(fullText);
-    } catch (e) {
-      console.error("Clipboard failed", e);
-    }
-    window.open('https://keep.google.com/', '_blank');
+    const fullText = `${note.headline}\n\n${note.content}`;
+    try { await navigator.clipboard.writeText(fullText); } catch (e) {}
+    setSyncStatus('success');
+    setTimeout(() => {
+        setSyncStatus('idle');
+        window.open('https://keep.google.com/', '_blank');
+    }, 1000);
   };
 
   const handleExportToTasks = async () => {
-    let taskText = note.content;
-    const reminderPrefixRegex = /^reminder\s+to\s+/i;
-    if (reminderPrefixRegex.test(taskText)) {
-      taskText = taskText.replace(reminderPrefixRegex, '');
-    } else {
-      taskText = note.headline;
-    }
+    if (serviceKeys?.tasks) {
+        setIsSyncing(true);
+        const token = serviceKeys.tasks.trim();
+        const LIST_TITLE = 'note-forge';
+        
+        try {
+            // 1. Get all task lists to find "note-forge"
+            const listsResponse = await fetch('https://www.googleapis.com/tasks/v1/users/@me/lists', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (!listsResponse.ok) throw new Error('LIST_FETCH_FAIL');
+            const listsData = await listsResponse.json();
+            
+            let targetListId = listsData.items?.find((l: any) => l.title === LIST_TITLE)?.id;
 
-    try {
-      await navigator.clipboard.writeText(taskText.trim());
-    } catch (e) {
-      console.error("Clipboard failed", e);
+            // 2. Create the list if it doesn't exist
+            if (!targetListId) {
+                const createListResponse = await fetch('https://www.googleapis.com/tasks/v1/users/@me/lists', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title: LIST_TITLE })
+                });
+                if (!createListResponse.ok) throw new Error('LIST_CREATE_FAIL');
+                const newList = await createListResponse.json();
+                targetListId = newList.id;
+            }
+
+            // Calculate due date (Current time + 2 hours)
+            const TWO_HOURS_IN_MS = 2 * 60 * 60 * 1000;
+            const dueTimestamp = new Date(Date.now() + TWO_HOURS_IN_MS).toISOString();
+
+            // 3. Post the actual task to the specialized list
+            const response = await fetch(`https://www.googleapis.com/tasks/v1/lists/${targetListId}/tasks`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    title: note.headline,
+                    notes: note.content,
+                    due: dueTimestamp // Set 2-hour timer by default
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                console.error("Tasks API Error:", data);
+                if (response.status === 401) {
+                    alert("Your Google session has expired. Please tap 'Authorize Sync' again in the Vault.");
+                } else if (response.status === 403) {
+                    alert("Sync Failed (403): Ensure 'Google Tasks API' is ENABLED in your Google Cloud Project library.");
+                } else {
+                    alert(`Sync Error (${response.status}): ${data.error?.message || 'Unknown error'}`);
+                }
+                throw new Error("API_FAIL");
+            }
+
+            setSyncStatus('success');
+            setTimeout(() => setSyncStatus('idle'), 2000);
+        } catch (e) {
+            console.error("Task Sync Catch:", e);
+            setSyncStatus('error');
+            setTimeout(() => setSyncStatus('idle'), 3000);
+        } finally {
+            setIsSyncing(false);
+        }
+        return;
     }
+    
+    // Fallback: Copy to clipboard and open Tasks web
+    try { await navigator.clipboard.writeText(`${note.headline}\n\n${note.content}`); } catch (e) {}
+    alert("Copied to clipboard. Redirecting to manual Tasks...");
     window.open('https://tasks.google.com/', '_blank');
   };
 
   const handleReformat = async () => {
     if (isReformatting) return;
     setIsReformatting(true);
-    const originalContent = note.content;
     try {
         const newContent = await reformatNoteContent(note.content);
-        if (newContent) {
-            onUpdate(note.id, { 
-                content: newContent,
-                originalContent: originalContent
-            });
-        }
-    } catch (e) {
-        console.error("Reformatting failed", e);
-        if (onAiError) onAiError();
-    } finally {
-        setIsReformatting(false);
-    }
-  };
-
-  const handleUndo = () => {
-    if (note.originalContent) {
-        onUpdate(note.id, {
-            content: note.originalContent,
-            originalContent: undefined
-        });
-    }
+        if (newContent) onUpdate(note.id, { content: newContent, originalContent: note.content });
+    } catch (e) { if (onAiError) onAiError(); } finally { setIsReformatting(false); }
   };
 
   const style = getCategoryStyle(note.category);
-  const isActionable = ['task', 'reminder'].includes(note.category.toLowerCase());
 
   return (
     <div className="masonry-item group relative">
-      <div className={`${theme.key === 'pro' ? 'bg-[#1E2228]' : 'bg-[#22241B]'} rounded-[1.5rem] p-5 border ${theme.surfaceBorder} overflow-hidden transition-all hover:bg-opacity-80 hover:shadow-xl hover:shadow-black/20 duration-300 relative`}>
+      <div className={`${theme.key === 'pro' ? 'bg-[#1E2228]' : 'bg-[#22241B]'} rounded-[1.5rem] p-5 border ${theme.surfaceBorder} overflow-hidden transition-all duration-300 relative`}>
         
-        {/* Standard Note UI */}
         <div className="flex justify-between items-start mb-4">
-          <span 
-            className="px-3 py-1 rounded-lg text-[10px] font-black tracking-widest uppercase shadow-sm"
-            style={{ backgroundColor: style.bg, color: style.text }}
-          >
+          <span className="px-3 py-1 rounded-lg text-[10px] font-black tracking-widest uppercase" style={{ backgroundColor: style.bg, color: style.text }}>
             {note.category}
           </span>
-          
           <div className="flex items-center gap-1">
-            {note.aiStatus === 'processing' && (
-               <div className={`w-2 h-2 mr-2 rounded-full ${theme.primaryBg} animate-pulse`}></div>
-            )}
-            
-            <button
-                onClick={() => onEdit(note)}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#3F4042] text-[#8E9099] hover:text-[#FFB74D] transition-colors"
-                title="Edit Note"
-            >
-                <span className="material-symbols-rounded text-[18px]">edit</span>
-            </button>
-            
-            {note.originalContent && (
-                <button
-                    onClick={handleUndo}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-[#334B4F] text-[#A6EEFF] hover:bg-[#4E676B] hover:shadow-md transition-all duration-300 animate-in zoom-in-50 spin-in-90 active:scale-95"
-                    title="Undo AI Reformat"
-                >
-                    <span className="material-symbols-rounded text-[18px]">undo</span>
-                </button>
-            )}
-
-            <button
-                onClick={handleReformat}
-                disabled={isReformatting || note.aiStatus === 'processing'}
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
-                    isReformatting 
-                        ? `${theme.primaryText} animate-pulse` 
-                        : `text-[#8E9099] hover:bg-[#3F4042] hover:${theme.primaryText}`
-                }`}
-                title="Reformat with Gemini"
-            >
-                <span className="material-symbols-rounded text-[20px]">auto_awesome</span>
-            </button>
-
-            <button 
-                onClick={() => setShowDeleteConfirm(true)}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#3F4042] text-[#8E9099] hover:text-[#FFB4AB] transition-colors"
-                aria-label="Confirm delete"
-            >
-                <span className="material-symbols-rounded text-[18px]">delete</span>
-            </button>
+            <button onClick={() => onEdit(note)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#3F4042] text-[#8E9099]"><span className="material-symbols-rounded text-[18px]">edit</span></button>
+            <button onClick={handleReformat} disabled={isReformatting} className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${isReformatting ? `${theme.primaryText} animate-pulse` : `text-[#8E9099] hover:bg-[#3F4042]`} `}><span className="material-symbols-rounded text-[20px]">auto_awesome</span></button>
+            <button onClick={() => setShowDeleteConfirm(true)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#3F4042] text-[#8E9099]"><span className="material-symbols-rounded text-[18px]">delete</span></button>
           </div>
         </div>
 
-        <h3 className="text-xl font-bold text-[#E3E2E6] mb-2 leading-tight">
-          {note.headline}
-        </h3>
-        
-        <p className={`${theme.subtleText} text-base font-normal leading-relaxed mb-6 whitespace-pre-wrap transition-opacity duration-300 ${isReformatting ? 'opacity-50' : 'opacity-100'}`}>
-          {note.content}
-        </p>
+        <h3 className="text-xl font-bold text-[#E3E2E6] mb-2 leading-tight">{note.headline}</h3>
+        <p className={`${theme.subtleText} text-base font-normal leading-relaxed mb-6 whitespace-pre-wrap ${isReformatting ? 'opacity-50' : ''}`}>{note.content}</p>
 
         <div className="flex flex-wrap gap-2 mb-6">
             {note.tags.map((tag, idx) => (
-            <span key={idx} className={`${theme.primaryText} text-xs font-medium opacity-80`}>
-                #{tag.replace(/^#+/, '')}
-            </span>
+            <span key={idx} className={`${theme.primaryText} text-xs font-medium opacity-80`}>#{tag}</span>
             ))}
         </div>
 
         <div className="flex items-center gap-2">
           <button 
-            onClick={handleExportToTasks}
-            className={`w-12 h-12 flex-shrink-0 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA] ${isActionable ? 'ring-2 ring-white/20' : ''}`}
-            title="Export to Tasks (stripped prefix)"
+            onClick={handleExportToTasks} 
+            disabled={isSyncing}
+            className={`w-12 h-12 flex-shrink-0 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 ${syncStatus === 'success' && !isSyncing ? 'bg-[#C1CC94] text-[#191A12]' : syncStatus === 'error' ? 'bg-[#FFB4AB] text-[#601410]' : 'bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA]'}`}
           >
-            <span className="material-symbols-rounded text-2xl">task_alt</span>
+            <span className={`material-symbols-rounded text-2xl ${isSyncing ? 'animate-spin' : ''}`}>{isSyncing ? 'sync' : (syncStatus === 'error' ? 'error' : 'task_alt')}</span>
           </button>
           
           <button 
             onClick={handleExportToKeep}
-            className={`flex-1 h-12 rounded-full ${theme.secondaryBg} ${theme.secondaryText} text-[11px] font-bold uppercase tracking-wider ${theme.secondaryHover} transition-colors flex items-center justify-center gap-2 shadow-sm`}
+            className={`flex-1 h-12 rounded-full transition-all border border-[#444746] ${theme.surface} ${theme.primaryText} text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 active:scale-95`}
           >
-            <span className="material-symbols-rounded text-lg">keep</span>
-            To Keep
+            <span className="material-symbols-rounded text-lg">
+                {syncStatus === 'success' ? 'done' : 'share'}
+            </span>
+            {syncStatus === 'success' ? 'Shared' : 'To Keep'}
           </button>
           
-          <button 
-            onClick={handleExportToObsidian}
-            className={`flex-1 h-12 rounded-full border border-[#444746] ${theme.surface} ${theme.primaryText} text-[11px] font-bold uppercase tracking-wider hover:bg-black/20 transition-colors flex items-center justify-center gap-2 shadow-sm`}
-          >
-            <span className="material-symbols-rounded text-lg">diamond</span>
-            To Obsidian
-          </button>
+          <button onClick={handleExportToObsidian} className={`flex-1 h-12 rounded-full border border-[#444746] ${theme.surface} ${theme.primaryText} text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 transition-colors`}><span className="material-symbols-rounded text-lg">diamond</span>Obsidian</button>
         </div>
 
-        {/* IN-CARD DELETE CONFIRMATION OVERLAY */}
         {showDeleteConfirm && (
-          <div className="absolute inset-0 z-50 p-4 bg-[#601410]/95 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200 flex flex-col items-center justify-center text-center rounded-[1.5rem]">
-              <div className="w-12 h-12 rounded-full bg-[#3F1111] flex items-center justify-center mb-3 text-[#FFB4AB]">
-                  <span className="material-symbols-rounded text-2xl">delete</span>
-              </div>
-              <h4 className="text-lg font-bold text-white mb-1 tracking-tight">Purge Entry?</h4>
-              <p className="text-[#FFDAD6] text-xs mb-5 leading-snug px-4 opacity-90">
-                  This action is permanent and cannot be reversed.
-              </p>
-              
+          <div className="absolute inset-0 z-50 p-4 bg-[#601410]/95 backdrop-blur-md flex flex-col items-center justify-center text-center rounded-[1.5rem]">
+              <h4 className="text-lg font-bold text-white mb-5 tracking-tight">Purge Entry?</h4>
               <div className="flex flex-col w-full gap-2 max-w-[180px]">
-                  <button 
-                      onClick={() => onDelete(note.id)}
-                      className="w-full py-2.5 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-[10px] hover:bg-[#FFB4AB] hover:text-[#601410] active:scale-95 transition-all shadow-lg border border-[#8C1D18]"
-                  >
-                      Confirm
-                  </button>
-                  <button 
-                      onClick={() => setShowDeleteConfirm(false)}
-                      className="w-full py-2.5 rounded-full bg-white/10 text-[#FFDAD6] font-bold uppercase tracking-widest text-[10px] hover:bg-white/20 active:scale-95 transition-all"
-                  >
-                      Cancel
-                  </button>
+                  <button onClick={() => onDelete(note.id)} className="w-full py-2.5 rounded-full bg-[#B3261E] text-[#FFB4AB] font-bold uppercase tracking-widest text-[10px]">Confirm</button>
+                  <button onClick={() => setShowDeleteConfirm(false)} className="w-full py-2.5 rounded-full bg-white/10 text-[#FFDAD6] font-bold uppercase tracking-widest text-[10px]">Cancel</button>
               </div>
           </div>
         )}

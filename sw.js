@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'note-forge-cache-v3';
+const CACHE_NAME = 'note-forge-cache-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -21,7 +21,6 @@ const ASSETS_TO_CACHE = [
   'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,GRAD,ROND@6..144,-10..0,25..151,1..1000,0..100,0..100&display=swap',
   'https://esm.sh/react@^19.2.3',
   'https://esm.sh/react-dom@^19.2.3/',
-  'https://esm.sh/react@^19.2.3/',
   'https://esm.sh/@google/genai'
 ];
 
@@ -52,11 +51,11 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Skip cross-origin POST requests (like API calls) from being cached
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
+    // CRITICAL: ignoreSearch: true allows index.html?title=... to match index.html in cache
+    caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const cacheCopy = networkResponse.clone();
@@ -66,7 +65,8 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // Silent catch for offline
+        // Fallback to cache if network fails
+        return cachedResponse;
       });
       return cachedResponse || fetchPromise;
     })

@@ -8,6 +8,7 @@ import FidgetStar from './components/FidgetStar';
 import ContextManager from './components/ContextManager';
 import KeyVault from './components/KeyVault';
 import DataTransfer from './components/DataTransfer';
+import ActivityInsights from './components/ActivityInsights';
 // @ts-ignore
 import { create, insert, search, remove, update } from '@orama/orama';
 
@@ -30,7 +31,6 @@ const LOGO_VARIATIONS = [
 ];
 
 const App: React.FC = () => {
-  // Lazy initialization to prevent race conditions with Share Target captures
   const [notes, setNotes] = useState<Note[]>(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -47,6 +47,7 @@ const App: React.FC = () => {
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [showOverview, setShowOverview] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const [modelTier, setModelTier] = useState<ModelTier>(() => {
     const stored = localStorage.getItem('note_forge_model_tier') as ModelTier;
     return ['flash', 'pro'].includes(stored) ? stored : 'flash';
@@ -59,15 +60,16 @@ const App: React.FC = () => {
   const [refreshProgress, setRefreshProgress] = useState<{ current: number, total: number } | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
 
-  // --- Share Logic State ---
   const [isShareLaunch, setIsShareLaunch] = useState(false);
   const [shareStatus, setShareStatus] = useState<'active' | 'closing' | 'idle'>('idle');
 
-  // --- Interactive Gesture State ---
+  // Enhanced Swipe States
   const [isSwiping, setIsSwiping] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0); 
   const [wasSwipedOpen, setWasSwipedOpen] = useState(false); 
   const touchStartPos = useRef<{ x: number, y: number, time: number } | null>(null);
+  const lastGestureEndTime = useRef<number>(0);
+  const swipeLockedOn = useRef<'insights' | 'overview' | null>(null);
   const screenWidth = useRef(window.innerWidth);
 
   useEffect(() => {
@@ -77,6 +79,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (Date.now() - lastGestureEndTime.current < 250) return;
+
     touchStartPos.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
@@ -84,6 +88,7 @@ const App: React.FC = () => {
     };
     setIsSwiping(false);
     setSwipeOffset(0);
+    swipeLockedOn.current = null;
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -92,19 +97,44 @@ const App: React.FC = () => {
     const currentY = e.touches[0].clientY;
     const deltaX = currentX - touchStartPos.current.x;
     const deltaY = currentY - touchStartPos.current.y;
+
     if (!isSwiping) {
+      // Threshold for initiating horizontal swipe
       if (Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
         setIsSwiping(true);
-      } else if (Math.abs(deltaY) > 15) {
+        
+        // Lock the gesture based on current modal context
+        if (showInsights) {
+          swipeLockedOn.current = 'insights';
+        } else if (showOverview) {
+          swipeLockedOn.current = 'overview';
+        } else {
+          // In main view: deltaX > 0 opens Insights (left side), deltaX < 0 opens Overview (right side)
+          swipeLockedOn.current = deltaX > 0 ? 'insights' : 'overview';
+        }
+      } else if (Math.abs(deltaY) > 20) {
         touchStartPos.current = null;
         return;
       }
     }
+
     if (isSwiping) {
+      // Direct Directional Locking Logic
+      if (showInsights) {
+        // We are at center, swiping left (negative deltaX) moves Insights drawer off-screen
+        setSwipeOffset(Math.min(0, deltaX));
+      } else if (showOverview) {
+        // We are at center, swiping right (positive deltaX) moves Overview drawer off-screen
+        setSwipeOffset(Math.max(0, deltaX));
+      } else {
+        // Main view: Open Insights (positive deltaX) or Overview (negative deltaX)
+        if (swipeLockedOn.current === 'insights') {
+          setSwipeOffset(Math.max(0, deltaX));
+        } else {
+          setSwipeOffset(Math.min(0, deltaX));
+        }
+      }
       if (e.cancelable) e.preventDefault();
-      let offset = deltaX;
-      if (!showOverview) { offset = Math.min(0, deltaX); } else { offset = Math.max(0, deltaX); }
-      setSwipeOffset(offset);
     }
   };
 
@@ -114,30 +144,56 @@ const App: React.FC = () => {
       setIsSwiping(false);
       return;
     }
+
     const deltaX = e.changedTouches[0].clientX - touchStartPos.current.x;
     const deltaTime = Date.now() - touchStartPos.current.time;
     const velocity = Math.abs(deltaX) / (deltaTime || 1); 
+    const threshold = screenWidth.current * 0.25; 
+    const velocityThreshold = 0.3;
+
+    let actionTriggered = false;
+
+    if (showInsights && swipeLockedOn.current === 'insights') {
+      // Close Insights (Left side drawer) - requires swipe left
+      if (deltaX < -threshold || (velocity > velocityThreshold && deltaX < 0)) {
+        setShowInsights(false);
+        actionTriggered = true;
+      }
+    } else if (showOverview && swipeLockedOn.current === 'overview') {
+      // Close Overview (Right side drawer) - requires swipe right
+      if (deltaX > threshold || (velocity > velocityThreshold && deltaX > 0)) {
+        setShowOverview(false);
+        actionTriggered = true;
+      }
+    } else if (!showInsights && !showOverview) {
+      // Opening from main view
+      if (swipeLockedOn.current === 'overview' && deltaX < 0) {
+        if (deltaX < -threshold || (velocity > velocityThreshold)) {
+          setWasSwipedOpen(true);
+          setShowOverview(true);
+          actionTriggered = true;
+        }
+      } else if (swipeLockedOn.current === 'insights' && deltaX > 0) {
+        if (deltaX > threshold || (velocity > velocityThreshold)) {
+          setShowInsights(true);
+          actionTriggered = true;
+        }
+      }
+    }
+
+    if (actionTriggered) {
+        lastGestureEndTime.current = Date.now();
+    }
+
     touchStartPos.current = null;
     setIsSwiping(false);
     setSwipeOffset(0);
-    const threshold = screenWidth.current * 0.25; 
-    const velocityThreshold = 0.4; 
-    if (!showOverview) {
-      if (deltaX < -threshold || (velocity > velocityThreshold && deltaX < 0)) {
-        setWasSwipedOpen(true);
-        setShowOverview(true);
-      }
-    } else {
-      if (deltaX > threshold || (velocity > velocityThreshold && deltaX > 0)) {
-        setShowOverview(false);
-        setTimeout(() => setWasSwipedOpen(false), 500);
-      }
-    }
   };
 
   const toggleOverviewProgrammatically = (open: boolean) => {
     setWasSwipedOpen(false); 
     setShowOverview(open);
+    lastGestureEndTime.current = Date.now();
   };
 
   useEffect(() => {
@@ -228,7 +284,6 @@ const App: React.FC = () => {
     }
   }, [editingNoteId]);
 
-  // --- BACKGROUND CLERK: Automatically process pending AI tasks ---
   useEffect(() => {
     const pending = notes.filter(n => n.aiStatus === 'idle');
     if (pending.length > 0 && !isReprocessingAI) {
@@ -247,7 +302,6 @@ const App: React.FC = () => {
     }
   }, [notes, isReprocessingAI]);
 
-  // --- QUIET SHARE HANDLER: Instant Capture + Persistence Fix ---
   useEffect(() => {
     const parsedUrl = new URL(window.location.href);
     const sharedTitle = parsedUrl.searchParams.get('title');
@@ -276,20 +330,13 @@ const App: React.FC = () => {
           tags: ['Shared']
         };
 
-        // Update state directly. The useEffect for notes will persist this to localStorage.
         setNotes(prev => [newNote, ...prev]);
         
-        // Wait for the visual fidget star to provide confirmation, then exit.
         setTimeout(() => {
           setShareStatus('closing');
-          // Clear query params immediately so a manual refresh doesn't trigger another save
           window.history.replaceState({}, document.title, window.location.pathname);
-          
           setTimeout(() => {
-            // window.close() only works in specific PWA / standalone contexts or if opened via script.
-            // On mobile, users typically just switch back, but we attempt a close.
             window.close();
-            // Final fallback to hide UI if close fails
             setIsShareLaunch(false);
             setShareStatus('idle');
           }, 600);
@@ -378,10 +425,19 @@ const App: React.FC = () => {
 
   const scrollToNote = (id: string) => {
     setShowOverview(false);
+    setShowInsights(false);
     setTimeout(() => {
       const el = document.getElementById(`note-${id}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 100);
+  };
+
+  const scrollToDate = (dateStr: string) => {
+    setShowInsights(false);
+    const targetNote = notes.find(n => new Date(n.timestamp).toISOString().split('T')[0] === dateStr);
+    if (targetNote) {
+      scrollToNote(targetNote.id);
+    }
   };
 
   const getFocusModeOverlayColor = (hex: string, alpha: number) => {
@@ -392,9 +448,14 @@ const App: React.FC = () => {
   };
 
   const getOverviewTransform = () => {
-    if (isSwiping) {
-      if (!showOverview) { return `translateX(calc(100% + ${swipeOffset}px))`; }
-      else { return `translateX(${swipeOffset}px)`; }
+    if (isSwiping && swipeLockedOn.current === 'overview') {
+      if (showOverview) {
+        // Swipe right (positive swipeOffset) to reveal background
+        return `translateX(${Math.max(0, swipeOffset)}px)`;
+      } else {
+        // Swipe left (negative swipeOffset) to pull drawer from right
+        return `translateX(calc(100% + ${Math.min(0, swipeOffset)}px))`;
+      }
     }
     return showOverview ? 'translateX(0)' : 'translateX(100%)';
   };
@@ -403,18 +464,20 @@ const App: React.FC = () => {
     const maxOpacity = 0.4;
     if (isSwiping) {
       const progress = Math.abs(swipeOffset) / screenWidth.current;
-      if (!showOverview) { return Math.min(maxOpacity, progress * maxOpacity * 4); }
-      else { return Math.max(0, maxOpacity - (progress * maxOpacity)); }
+      if (showOverview || showInsights) {
+        return Math.max(0, maxOpacity - (progress * maxOpacity));
+      } else {
+        return Math.min(maxOpacity, progress * maxOpacity * 3);
+      }
     }
-    return showOverview ? maxOpacity : 0;
+    return (showOverview || showInsights) ? maxOpacity : 0;
   };
 
-  const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || isSwiping || isShareLaunch) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
+  const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || showInsights || isSwiping || isShareLaunch) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
 
   return (
     <div className="min-h-dvh flex flex-col transition-colors duration-500 relative overflow-x-hidden touch-pan-y" style={{ backgroundColor: theme.bg }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
       
-      {/* --- QUIET MODE OVERLAY --- */}
       {isShareLaunch && (
         <div className={`fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[40px] transition-all duration-700 ${shareStatus === 'closing' ? 'opacity-0 scale-110 pointer-events-none' : 'opacity-100 scale-100'}`}>
           <div className="animate-in zoom-in duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]">
@@ -422,6 +485,18 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ActivityInsights 
+        notes={notes} 
+        theme={theme} 
+        isOpen={showInsights} 
+        onClose={() => setShowInsights(false)} 
+        isSwiping={isSwiping && swipeLockedOn.current === 'insights'}
+        swipeOffset={swipeOffset}
+        onDateClick={scrollToDate}
+        getFocusModeOverlayColor={getFocusModeOverlayColor}
+        backdropOpacity={getBackdropOpacity()}
+      />
 
       <header className={`pt-safe pb-4 px-5 max-w-5xl w-full mx-auto flex items-center justify-between ${backgroundBlurClasses}`}>
         <div className="flex flex-col pt-8">
@@ -442,7 +517,7 @@ const App: React.FC = () => {
           <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search notes..." className={`w-full ${theme.surface} h-16 pl-16 pr-8 rounded-[1.5rem] text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none focus:ring-2 ${theme.focusRing} transition-all shadow-lg border border-white/5`} />
         </div>
 
-        <div className={`transition-all duration-400 ${(showOverview || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+        <div className={`transition-all duration-400 ${(showOverview || showInsights || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
            <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
         </div>
 
@@ -483,7 +558,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      <div className={`fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm transition-transform duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] touch-pan-y ${isSwiping ? 'duration-0' : ''}`} style={{ backgroundColor: getFocusModeOverlayColor(theme.bg, getBackdropOpacity()), transform: getOverviewTransform(), visibility: (showOverview || isSwiping) ? 'visible' : 'hidden' }}>
+      <div className={`fixed inset-0 z-[9999] overflow-y-auto anti-alias-container backdrop-blur-sm transition-transform duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] touch-pan-y ${isSwiping && swipeLockedOn.current === 'overview' ? 'duration-0' : ''}`} style={{ backgroundColor: getFocusModeOverlayColor(theme.bg, getBackdropOpacity()), transform: getOverviewTransform(), visibility: (showOverview || (isSwiping && swipeLockedOn.current === 'overview')) ? 'visible' : 'hidden' }}>
         <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col pointer-events-auto pt-safe pb-safe">
           <div className="pt-10 pb-6 flex items-center justify-between flex-shrink-0">
             <div className="flex flex-col">

@@ -295,6 +295,12 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleCancelEdit = () => {
+    setEditingNoteId(null);
+    setEditContent('');
+    setEditRagEnabled(false);
+  };
+
   useEffect(() => {
     const pending = notes.filter(n => n.aiStatus === 'idle');
     if (pending.length > 0 && !isReprocessingAI) {
@@ -563,7 +569,7 @@ const App: React.FC = () => {
                 initialContent={editContent} 
                 initialRagEnabled={editRagEnabled}
                 isEditing={!!editingNoteId} 
-                onCancelEdit={() => setEditingNoteId(null)} 
+                onCancelEdit={handleCancelEdit} 
               />
           </div>
 

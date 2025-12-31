@@ -74,13 +74,10 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
       weeksList.push({ monthLabel, days: weekDays });
     }
 
+    // Chronological order: Oldest (January or -364d) at top
     return { weeks: weeksList, totalNotes: totalCount };
   }, [activityData]);
 
-  /**
-   * Generates dynamic styles matching the app theme.
-   * Uses theme.accentHex with custom alpha channels for the heatmap steps.
-   */
   const getHeatStyle = (count: number, isFuture: boolean) => {
     if (isFuture) return { backgroundColor: 'rgba(255,255,255,0.02)' };
     if (count === 0) return { backgroundColor: 'rgba(255,255,255,0.05)' };
@@ -97,10 +94,8 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
   const getTransform = () => {
     if (isSwiping) {
       if (isOpen) {
-        // swipeOffset will be negative as we swipe left to close
         return `translateX(${Math.min(0, swipeOffset)}px)`;
       } else {
-        // swipeOffset will be positive as we swipe right to open
         return `translateX(calc(-100% + ${Math.max(0, swipeOffset)}px))`;
       }
     }
@@ -117,7 +112,6 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
       }}
     >
       <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col pointer-events-auto pt-safe pb-safe">
-        {/* Header */}
         <div className="pt-10 pb-10 flex items-center justify-between flex-shrink-0">
           <div className="flex flex-col">
             <h1 
@@ -138,32 +132,24 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
           </button>
         </div>
 
-        {/* Heatmap Layout */}
         <div className="flex-1 flex flex-col items-center">
-            
-            {/* Weekday Gutter Labels */}
             <div className="flex w-full max-w-[400px] mb-4 pl-12 pr-2">
                 {DAYS_OF_WEEK_LABELS.map((label, i) => (
                     <div key={i} className="flex-1 text-center text-[10px] font-black text-white/20 tracking-widest">{label}</div>
                 ))}
             </div>
 
-            {/* Continuous Heatmap Grid */}
             <div className="w-full max-w-[400px] flex flex-col gap-1.5 pb-12">
                 {weeks.map((week, wIdx) => (
                     <div key={wIdx} className="flex items-center gap-2 group">
-                        {/* Month Indicator (Left Gutter) */}
                         <div className="w-12 flex-shrink-0 text-[10px] font-black uppercase tracking-tighter text-white/30 text-right pr-4 h-5 flex items-center justify-end">
                             {week.monthLabel}
                         </div>
-                        
-                        {/* 7-Day Contribution Row */}
                         <div className="flex-1 grid grid-cols-7 gap-1.5">
                             {week.days.map((date) => {
                                 const dStr = date.toISOString().split('T')[0];
                                 const count = activityData[dStr] || 0;
                                 const isFuture = date > new Date();
-                                
                                 return (
                                     <button 
                                         key={dStr}
@@ -183,7 +169,6 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
                 ))}
             </div>
 
-            {/* Theme-Aware Legend */}
             <div className="w-full max-w-[400px] flex items-center justify-end gap-3 pb-32 text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">
                 <span>Less</span>
                 <div className="flex gap-1.5">

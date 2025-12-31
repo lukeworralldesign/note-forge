@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Note, ThemeColors, getCategoryStyle, ServiceKeys } from '../types';
 import { reformatNoteContent } from '../services/geminiService';
@@ -67,7 +66,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
         const LIST_TITLE = 'note-forge';
         
         try {
-            // 1. Get all task lists to find "note-forge"
             const listsResponse = await fetch('https://www.googleapis.com/tasks/v1/users/@me/lists', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -77,7 +75,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             
             let targetListId = listsData.items?.find((l: any) => l.title === LIST_TITLE)?.id;
 
-            // 2. Create the list if it doesn't exist
             if (!targetListId) {
                 const createListResponse = await fetch('https://www.googleapis.com/tasks/v1/users/@me/lists', {
                     method: 'POST',
@@ -92,11 +89,9 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
                 targetListId = newList.id;
             }
 
-            // Calculate due date (Current time + 2 hours)
             const TWO_HOURS_IN_MS = 2 * 60 * 60 * 1000;
             const dueTimestamp = new Date(Date.now() + TWO_HOURS_IN_MS).toISOString();
 
-            // 3. Post the actual task to the specialized list
             const response = await fetch(`https://www.googleapis.com/tasks/v1/lists/${targetListId}/tasks`, {
                 method: 'POST',
                 headers: {
@@ -106,28 +101,16 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
                 body: JSON.stringify({
                     title: note.headline,
                     notes: note.content,
-                    due: dueTimestamp // Set 2-hour timer by default
+                    due: dueTimestamp 
                 })
             });
             
             const data = await response.json();
-            
-            if (!response.ok) {
-                console.error("Tasks API Error:", data);
-                if (response.status === 401) {
-                    alert("Your Google session has expired. Please tap 'Authorize Sync' again in the Vault.");
-                } else if (response.status === 403) {
-                    alert("Sync Failed (403): Ensure 'Google Tasks API' is ENABLED in your Google Cloud Project library.");
-                } else {
-                    alert(`Sync Error (${response.status}): ${data.error?.message || 'Unknown error'}`);
-                }
-                throw new Error("API_FAIL");
-            }
+            if (!response.ok) throw new Error("API_FAIL");
 
             setSyncStatus('success');
             setTimeout(() => setSyncStatus('idle'), 2000);
         } catch (e) {
-            console.error("Task Sync Catch:", e);
             setSyncStatus('error');
             setTimeout(() => setSyncStatus('idle'), 3000);
         } finally {
@@ -136,9 +119,7 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
         return;
     }
     
-    // Fallback: Copy to clipboard and open Tasks web
     try { await navigator.clipboard.writeText(`${note.headline}\n\n${note.content}`); } catch (e) {}
-    alert("Copied to clipboard. Redirecting to manual Tasks...");
     window.open('https://tasks.google.com/', '_blank');
   };
 
@@ -146,7 +127,7 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     if (isReformatting) return;
     setIsReformatting(true);
     try {
-        const newContent = await reformatNoteContent(note.content);
+        const newContent = await reformatNoteContent(note.content, note.ragEnabled);
         if (newContent) onUpdate(note.id, { content: newContent, originalContent: note.content });
     } catch (e) { if (onAiError) onAiError(); } finally { setIsReformatting(false); }
   };
@@ -158,9 +139,17 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
       <div className={`${theme.key === 'pro' ? 'bg-[#1E2228]' : 'bg-[#22241B]'} rounded-[1.5rem] p-5 border ${theme.surfaceBorder} overflow-hidden transition-all duration-300 relative`}>
         
         <div className="flex justify-between items-start mb-4">
-          <span className="px-3 py-1 rounded-lg text-[10px] font-black tracking-widest uppercase" style={{ backgroundColor: style.bg, color: style.text }}>
-            {note.category}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-lg text-[10px] font-black tracking-widest uppercase" style={{ backgroundColor: style.bg, color: style.text }}>
+              {note.category}
+            </span>
+            {note.ragEnabled && (
+                <div className={`flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 ${theme.primaryText} text-[8px] font-black uppercase tracking-[0.1em]`}>
+                    <span className="material-symbols-rounded text-[10px]">database</span>
+                    <span>Context</span>
+                </div>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             <button onClick={() => onEdit(note)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#3F4042] text-[#8E9099]"><span className="material-symbols-rounded text-[18px]">edit</span></button>
             <button onClick={handleReformat} disabled={isReformatting} className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${isReformatting ? `${theme.primaryText} animate-pulse` : `text-[#8E9099] hover:bg-[#3F4042]`} `}><span className="material-symbols-rounded text-[20px]">auto_awesome</span></button>

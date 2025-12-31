@@ -46,8 +46,10 @@ const App: React.FC = () => {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [editRagEnabled, setEditRagEnabled] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
+  
   const [modelTier, setModelTier] = useState<ModelTier>(() => {
     const stored = localStorage.getItem('note_forge_model_tier') as ModelTier;
     return ['flash', 'pro'].includes(stored) ? stored : 'flash';
@@ -61,7 +63,7 @@ const App: React.FC = () => {
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
 
   const [isShareLaunch, setIsShareLaunch] = useState(false);
-  const [shareStatus, setShareStatus] = useState<'active' | 'closing' | 'idle'>('idle');
+  const [shareStatus, setShareStatus] = useState<'active' | 'success' | 'closing' | 'idle'>('idle');
 
   // Gesture State
   const [isSwiping, setIsSwiping] = useState(false);
@@ -86,14 +88,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    // Prevent starting new gesture if refreshing or too soon after last one
     if (Date.now() - lastGestureEndTime.current < 250 || isRefreshing) return;
-
-    touchStartPos.current = {
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
-      time: Date.now()
-    };
+    touchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
     setIsSwiping(false);
     setSwipeOffset(0);
     setPullOffset(0);
@@ -110,8 +106,6 @@ const App: React.FC = () => {
     if (!isSwiping) {
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
-
-      // Decision matrix for gesture locking
       if (absX > 15 && absX > absY * 1.5) {
         setIsSwiping(true);
         if (showInsights) swipeLockedOn.current = 'insights';
@@ -128,12 +122,10 @@ const App: React.FC = () => {
 
     if (isSwiping) {
       if (swipeLockedOn.current === 'pull') {
-        // Vertical Rubber-banding capped at 25% screen height
         const maxStretch = screenHeight.current * 0.25;
         const pullDistance = Math.max(0, deltaY);
         const resistance = 0.4;
-        const calculatedOffset = pullDistance * resistance;
-        setPullOffset(Math.min(calculatedOffset, maxStretch));
+        setPullOffset(Math.min(pullDistance * resistance, maxStretch));
         if (e.cancelable) e.preventDefault();
       } else if (swipeLockedOn.current === 'insights') {
         setSwipeOffset(showInsights ? Math.min(0, deltaX) : Math.max(0, deltaX));
@@ -152,24 +144,18 @@ const App: React.FC = () => {
       setPullOffset(0);
       return;
     }
-
     const deltaX = e.changedTouches[0].clientX - touchStartPos.current.x;
     const deltaTime = Date.now() - touchStartPos.current.time;
     const velocityX = Math.abs(deltaX) / (deltaTime || 1); 
     const threshold = screenWidth.current * 0.25; 
     const velocityThreshold = 0.3;
-
     let actionTriggered = false;
 
     if (swipeLockedOn.current === 'pull') {
-        // Threshold check for triggering refresh
         if (pullOffset > 80) {
             setIsRefreshing(true);
-            setPullOffset(80); // Snap to a visible loading position
-            setTimeout(() => {
-                // Use location.replace for a cleaner reload that doesn't mess up history
-                window.location.replace(window.location.href);
-            }, 800);
+            setPullOffset(80);
+            setTimeout(() => { window.location.replace(window.location.href); }, 800);
             actionTriggered = true;
         } else {
             setPullOffset(0);
@@ -198,15 +184,10 @@ const App: React.FC = () => {
         }
       }
     }
-
-    if (actionTriggered) {
-        lastGestureEndTime.current = Date.now();
-    }
-
+    if (actionTriggered) lastGestureEndTime.current = Date.now();
     touchStartPos.current = null;
     setIsSwiping(false);
     setSwipeOffset(0);
-    // Don't reset pullOffset if we are currently in the refresh "frozen" state
     if (!actionTriggered) setPullOffset(0);
   };
 
@@ -271,14 +252,15 @@ const App: React.FC = () => {
     localStorage.setItem('note_forge_model_tier', modelTier);
   }, [modelTier]);
 
-  const handleNoteSave = useCallback(async (content: string, skipUIReset = false) => {
+  const handleNoteSave = useCallback(async (content: string, ragEnabled: boolean) => {
     if (editingNoteId) {
       const targetId = editingNoteId;
       setEditingNoteId(null);
       setEditContent('');
-      setNotes(prev => prev.map(n => n.id === targetId ? { ...n, content, aiStatus: 'processing' } : n));
+      setEditRagEnabled(false);
+      setNotes(prev => prev.map(n => n.id === targetId ? { ...n, content, ragEnabled, aiStatus: 'processing' } : n));
       try {
-        const aiResult = await processNoteWithAI(content);
+        const aiResult = await processNoteWithAI(content, ragEnabled);
         const embedding = await getLocalEmbedding(content);
         setNotes(prev => prev.map(n => n.id === targetId ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
         return aiResult;
@@ -288,11 +270,11 @@ const App: React.FC = () => {
     } else {
       const newId = crypto.randomUUID();
       const newNote: Note = {
-        id: newId, content, timestamp: Date.now(), aiStatus: 'processing', category: '...', headline: 'Analyzing...', tags: []
+        id: newId, content, ragEnabled, timestamp: Date.now(), aiStatus: 'processing', category: '...', headline: 'Analyzing...', tags: []
       };
       setNotes(prev => [newNote, ...prev]);
       try {
-        const aiResult = await processNoteWithAI(content);
+        const aiResult = await processNoteWithAI(content, ragEnabled);
         const embedding = await getLocalEmbedding(content);
         setNotes(current => current.map(n => n.id === newId ? { ...n, aiStatus: 'completed', ...aiResult, embedding: embedding || undefined } : n));
         return aiResult;
@@ -304,13 +286,22 @@ const App: React.FC = () => {
     }
   }, [editingNoteId]);
 
+  const handleEditNote = (note: Note) => {
+    setEditingNoteId(note.id);
+    setEditContent(note.content);
+    setEditRagEnabled(note.ragEnabled);
+    setShowOverview(false);
+    setShowInsights(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   useEffect(() => {
     const pending = notes.filter(n => n.aiStatus === 'idle');
     if (pending.length > 0 && !isReprocessingAI) {
       const processPending = async () => {
         for (const note of pending) {
           try {
-            const aiResult = await processNoteWithAI(note.content);
+            const aiResult = await processNoteWithAI(note.content, note.ragEnabled);
             const embedding = await getLocalEmbedding(note.content);
             setNotes(prev => prev.map(n => n.id === note.id ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
           } catch (e) {
@@ -347,20 +338,23 @@ const App: React.FC = () => {
           aiStatus: 'idle', 
           category: 'Captured', 
           headline: sharedTitle || 'Incoming Resource', 
-          tags: ['Shared']
+          tags: ['Shared'],
+          ragEnabled: true // Default share to use context if available
         };
 
         setNotes(prev => [newNote, ...prev]);
-        
         setTimeout(() => {
-          setShareStatus('closing');
-          window.history.replaceState({}, document.title, window.location.pathname);
+          setShareStatus('success');
           setTimeout(() => {
-            window.close();
-            setIsShareLaunch(false);
-            setShareStatus('idle');
-          }, 600);
-        }, 1200);
+            setShareStatus('closing');
+            window.history.replaceState({}, document.title, window.location.pathname);
+            setTimeout(() => {
+              window.close();
+              setIsShareLaunch(false);
+              setShareStatus('idle');
+            }, 300);
+          }, 400);
+        }, 300);
       } else {
         setIsShareLaunch(false);
       }
@@ -376,7 +370,7 @@ const App: React.FC = () => {
       for (let i = 0; i < updatedNotes.length; i++) {
         setRefreshProgress({ current: i + 1, total: notes.length });
         try {
-          const aiResult = await processNoteWithAI(updatedNotes[i].content);
+          const aiResult = await processNoteWithAI(updatedNotes[i].content, updatedNotes[i].ragEnabled);
           updatedNotes[i] = { ...updatedNotes[i], ...aiResult, aiStatus: 'completed' };
         } catch (e) { updatedNotes[i] = { ...updatedNotes[i], aiStatus: 'error' }; }
       }
@@ -495,7 +489,6 @@ const App: React.FC = () => {
   return (
     <div className="min-h-dvh flex flex-col transition-colors duration-500 relative overflow-x-hidden touch-pan-y" style={{ backgroundColor: theme.bg }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
       
-      {/* Pull to Refresh Indicator - Dynamic Snap behavior */}
       <div 
         className={`fixed top-0 left-0 right-0 z-[1000] flex justify-center pointer-events-none transition-opacity duration-300 ${pullOffset > 10 || isRefreshing ? 'opacity-100' : 'opacity-0'}`}
         style={{ transform: `translateY(${Math.min(pullOffset - 50, 60)}px)` }}
@@ -510,8 +503,19 @@ const App: React.FC = () => {
 
       {isShareLaunch && (
         <div className={`fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[40px] transition-all duration-700 ${shareStatus === 'closing' ? 'opacity-0 scale-110 pointer-events-none' : 'opacity-100 scale-100'}`}>
-          <div className="animate-in zoom-in duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]">
-             <FidgetStar sizeClass="w-36 h-36" colorClass={theme.primaryText} />
+          <div className="flex flex-col items-center gap-8 animate-in zoom-in duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]">
+             <div className="relative">
+                <FidgetStar sizeClass="w-36 h-36" colorClass={theme.primaryText} />
+                <div className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${shareStatus === 'success' ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
+                    <span className="material-symbols-rounded text-6xl text-white drop-shadow-lg">done_all</span>
+                </div>
+             </div>
+             <div className={`text-center transition-all duration-500 ${shareStatus === 'success' ? 'opacity-100 translate-y-0' : 'opacity-40 translate-y-4'}`}>
+                <p className="text-white text-xs font-black uppercase tracking-[0.4em] mb-2">{shareStatus === 'success' ? 'Captured' : 'Forging Knowledge'}</p>
+                <div className="h-1 w-24 bg-white/10 mx-auto rounded-full overflow-hidden">
+                    <div className={`h-full bg-white transition-all duration-500 ${shareStatus === 'success' ? 'w-full' : 'w-1/2'}`}></div>
+                </div>
+             </div>
           </div>
         </div>
       )}
@@ -552,7 +556,15 @@ const App: React.FC = () => {
           </div>
 
           <div className={`transition-all duration-400 ${(showOverview || showInsights || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
-             <TheForge onSave={handleNoteSave} theme={theme} onFocusChange={setIsFocusMode} initialContent={editContent} isEditing={!!editingNoteId} onCancelEdit={() => setEditingNoteId(null)} />
+             <TheForge 
+                onSave={handleNoteSave} 
+                theme={theme} 
+                onFocusChange={setIsFocusMode} 
+                initialContent={editContent} 
+                initialRagEnabled={editRagEnabled}
+                isEditing={!!editingNoteId} 
+                onCancelEdit={() => setEditingNoteId(null)} 
+              />
           </div>
 
           <div className={`mt-10 ${backgroundBlurClasses}`}>
@@ -563,7 +575,7 @@ const App: React.FC = () => {
             <div className="masonry-grid">
               {filteredNotes.length > 0 ? filteredNotes.map(note => (
                 <div id={`note-${note.id}`} key={note.id} className="anti-alias-item">
-                  <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={(n) => {setEditingNoteId(n.id); setEditContent(n.content); window.scrollTo({top:0, behavior:'smooth'})}} theme={theme} serviceKeys={serviceKeys} />
+                  <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={handleEditNote} theme={theme} serviceKeys={serviceKeys} />
                 </div>
               )) : (
                 <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20">
@@ -609,10 +621,16 @@ const App: React.FC = () => {
               const style = getCategoryStyle(note.category);
               const shouldAnimate = showOverview && !wasSwipedOpen && !isSwiping;
               return (
-                <div key={note.id} onClick={() => scrollToNote(note.id)} className={`${theme.surface} p-5 rounded-[1.5rem] cursor-pointer border border-white/10 transition-all hover:scale-[1.02] hover:shadow-2xl hover:brightness-110 flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} style={{ animation: shouldAnimate ? `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` : 'none' }}>
+                <div key={note.id} className={`${theme.surface} p-5 rounded-[1.5rem] border border-white/10 transition-all flex flex-col gap-2 h-[180px] shadow-2xl anti-alias-item group relative overflow-hidden`} style={{ animation: shouldAnimate ? `staggered-materialize 0.8s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.015}s both` : 'none' }}>
                   <div className="flex justify-between items-center flex-shrink-0 relative z-10">
-                    <span className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm" style={{ backgroundColor: style.bg, color: style.text }}>{note.category}</span>
-                    <button onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }} className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"><span className="material-symbols-rounded text-lg">delete</span></button>
+                    <div className="flex items-center gap-1">
+                        <span className="px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest shadow-sm" style={{ backgroundColor: style.bg, color: style.text }}>{note.category}</span>
+                        {note.ragEnabled && <span className="material-symbols-rounded text-[10px] text-white/40">database</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={(e) => { e.stopPropagation(); handleEditNote(note); }} className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"><span className="material-symbols-rounded text-lg">edit</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); setNoteToDelete(note); }} className="w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-black/20 transition-all"><span className="material-symbols-rounded text-lg">delete</span></button>
+                    </div>
                   </div>
                   <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
                   <div className="mt-auto flex justify-between items-center relative z-10">

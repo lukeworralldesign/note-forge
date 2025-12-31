@@ -1,4 +1,3 @@
-
 import { HERO_COLORS } from './resources/colors';
 
 export interface Note {
@@ -11,6 +10,7 @@ export interface Note {
   headline: string;
   tags: string[];
   embedding?: number[];
+  ragEnabled: boolean; // New property to track if context was used
 }
 
 export interface AIReponse {

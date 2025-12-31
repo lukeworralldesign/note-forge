@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIReponse, ModelTier } from "../types";
 // @ts-ignore
@@ -51,15 +50,15 @@ const getContextPDF = (): string | null => {
   }
 };
 
-// Fix: Use process.env.API_KEY directly as required by guidelines
+// Fix: Corrected property names 'content' -> 'contents' and 'embedding' -> 'embeddings' to match API schema requirements identified in error logs
 export const getTextEmbedding = async (text: string): Promise<number[] | undefined> => {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.embedContent({
             model: 'text-embedding-004',
-            content: text,
+            contents: [{ parts: [{ text }] }],
         });
-        return response.embedding.values;
+        return response.embeddings[0].values;
     } catch (e) {
         console.warn("Cloud embedding failed, falling back to local", e);
         const local = await getLocalEmbedding(text);
@@ -67,20 +66,61 @@ export const getTextEmbedding = async (text: string): Promise<number[] | undefin
     }
 }
 
-// Fix: Use process.env.API_KEY exclusively and updated model aliases
-export const processNoteWithAI = async (content: string): Promise<AIReponse> => {
+export const generateBespokeSuggestions = async (content: string, ragEnabled: boolean = false): Promise<{label: string, icon: string, intent: string}[]> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const pdfContext = getContextPDF();
+    const modelName = currentTier === 'pro' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+    const pdfContext = ragEnabled ? getContextPDF() : null;
+
+    const parts: any[] = [];
+    if (pdfContext) {
+      parts.push({ inlineData: { mimeType: 'application/pdf', data: pdfContext } });
+      parts.push({ text: "Use the attached PDF as reference context." });
+    }
+    parts.push({ text: `Analyze this note and suggest 6 diverse, context-aware additions. NOTE: "${content}"` });
+
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: { parts },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              label: { type: Type.STRING },
+              icon: { type: Type.STRING },
+              intent: { type: Type.STRING }
+            },
+            required: ["label", "icon", "intent"]
+          }
+        }
+      }
+    });
+
+    return JSON.parse(response.text || '[]');
+  } catch (e) {
+    console.error("Failed to generate bespoke suggestions", e);
+    return [
+      { label: 'Summarize', icon: 'summarize', intent: 'Provide a concise summary of the points above.' },
+      { label: 'Action Items', icon: 'checklist', intent: 'Extract actionable tasks from the text.' },
+      { label: 'Elaborate', icon: 'add_circle', intent: 'Expand on the key concepts mentioned.' }
+    ];
+  }
+};
+
+export const processNoteWithAI = async (content: string, ragEnabled: boolean = false): Promise<AIReponse> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const pdfContext = ragEnabled ? getContextPDF() : null;
     const modelName = currentTier === 'pro' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
     const embeddingPromise = getTextEmbedding(content);
 
     const parts: any[] = [];
     if (pdfContext) {
       parts.push({ inlineData: { mimeType: 'application/pdf', data: pdfContext } });
-      parts.push({ text: `Analyze the USER NOTE in the context of the attached PDF document (Reference Manual).` });
-    } else {
-      parts.push({ text: `Analyze the USER NOTE.` });
+      parts.push({ text: `Analyze the USER NOTE in the context of the attached PDF document.` });
     }
 
     parts.push({ text: `TAG LIBRARY: ${TAG_LIBRARY}` });
@@ -94,8 +134,8 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
         Analyze the note and provide metadata using the provided TAG LIBRARY.
         
         RULES:
-        - Category: You MUST categorize the note into EXACTLY ONE of these: Thoughts, Ideas, Reminders, Coding, Projects, Lists, Research, or Personal.
-        - Headline: MAX 5 words. Summarize core intent.
+        - Category: One of: Thoughts, Ideas, Reminders, Coding, Projects, Lists, Research, Personal.
+        - Headline: MAX 5 words.
         - Tags: 3-5 tags from library.
         
         OUTPUT FORMAT: JSON ONLY.`,
@@ -126,11 +166,38 @@ export const processNoteWithAI = async (content: string): Promise<AIReponse> => 
   }
 };
 
-// Fix: Use process.env.API_KEY and extract response text correctly
-export const reformatNoteContent = async (content: string): Promise<string> => {
+export const performAISuggestion = async (content: string, intent: string, ragEnabled: boolean = false): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const pdfContext = getContextPDF();
+    const modelName = currentTier === 'pro' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+    const pdfContext = ragEnabled ? getContextPDF() : null;
+
+    const parts: any[] = [];
+    if (pdfContext) {
+      parts.push({ inlineData: { mimeType: 'application/pdf', data: pdfContext } });
+      parts.push({ text: "Reference context provided." });
+    }
+    parts.push({ text: `INSTRUCTION: ${intent}\nNOTE CONTENT: "${content}"` });
+    
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: { parts },
+      config: {
+        systemInstruction: `Provide addition to note based on instruction. Concatenated only. No intros.`
+      }
+    });
+    
+    return response.text?.trim() || "";
+  } catch (e) {
+    console.error("AI Suggestion failed", e);
+    throw e;
+  }
+};
+
+export const reformatNoteContent = async (content: string, ragEnabled: boolean = false): Promise<string> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const pdfContext = ragEnabled ? getContextPDF() : null;
     const modelName = currentTier === 'pro' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
     const parts: any[] = [];
     if (pdfContext) {
@@ -143,8 +210,7 @@ export const reformatNoteContent = async (content: string): Promise<string> => {
       model: modelName,
       contents: { parts },
       config: {
-        systemInstruction: `Reformat notes in authoritative, concise encyclopedic style. 
-        No markdown, single paragraph. AUTHORITATIVE tone.`
+        systemInstruction: `Reformat notes in authoritative, concise encyclopedic style. No markdown, single paragraph. AUTHORITATIVE tone.`
       }
     });
     return response.text || content;

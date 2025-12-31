@@ -56,6 +56,13 @@ const TheForge: React.FC<TheForgeProps> = ({
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
   const handleCancel = () => {
     if (onCancelEdit) {
       onCancelEdit();
@@ -99,6 +106,7 @@ const TheForge: React.FC<TheForgeProps> = ({
           ref={textareaRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
+          onKeyDown={handleKeyDown}
           onFocus={handleFocus}
           onBlur={handleBlur}
           placeholder={isEditing ? "Modifying entry..." : "New note..."}

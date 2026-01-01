@@ -67,27 +67,27 @@ interface CategoryStyle {
 }
 
 export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
-  idea: { bg: '#B7F397', text: '#215107' },
-  reference: { bg: '#FFB0C8', text: '#650B33' },
-  list: { bg: '#A8C7FA', text: '#00315F' },
+  idea: { bg: '#D9FFCA', text: '#0F2F00' },
+  reference: { bg: '#FFD8E4', text: '#3E001D' },
+  list: { bg: '#D3E3FD', text: '#041E49' },
   project: { bg: '#FFDCC1', text: '#2E1500' },
-  goal: { bg: '#E2C54B', text: '#3A3000' },
-  todo: { bg: '#FFB4AB', text: '#690005' },
-  urgent: { bg: '#FFB0CD', text: '#640030' },
-  work: { bg: '#BAC3FF', text: '#001A4C' },
-  personal: { bg: '#20E3B2', text: '#00382C' },
-  finance: { bg: '#6DD58C', text: '#00391C' },
-  health: { bg: '#FFD9E2', text: '#5C1126' },
-  tech: { bg: '#4FD8EB', text: '#00363D' },
-  journal: { bg: '#D0BCFF', text: '#381E72' },
-  meeting: { bg: '#EDB1FF', text: '#54006F' },
-  travel: { bg: '#D1E4FF', text: '#00315D' },
-  recipe: { bg: '#FFB784', text: '#4E2600' },
-  code: { bg: '#BCC7D9', text: '#273141' },
+  goal: { bg: '#FFEFA4', text: '#241A00' },
+  todo: { bg: '#FFDAD6', text: '#410002' },
+  urgent: { bg: '#FFD7F2', text: '#3D0024' },
+  work: { bg: '#E0E0FF', text: '#000F5D' },
+  personal: { bg: '#BCF0DF', text: '#00201A' },
+  finance: { bg: '#C4EED0', text: '#00210E' },
+  health: { bg: '#FFECF0', text: '#3E001D' },
+  tech: { bg: '#A6EEFF', text: '#001F25' },
+  journal: { bg: '#EADDFF', text: '#21005D' },
+  meeting: { bg: '#F3DAFF', text: '#2E004E' },
+  travel: { bg: '#C3E7FF', text: '#001E2F' },
+  recipe: { bg: '#FFDCC1', text: '#331200' },
+  code: { bg: '#DDE3EA', text: '#1A1C1E' },
   quote: { bg: '#EAE1D9', text: '#1E1B16' },
-  review: { bg: '#98F1BF', text: '#003922' },
-  archive: { bg: '#C4C7C5', text: '#2E3130' },
-  default: { bg: '#C4C7C5', text: '#2E3130' }
+  review: { bg: '#C4EED0', text: '#00210E' },
+  archive: { bg: '#E2E2E2', text: '#1B1B1B' },
+  default: { bg: '#E2E2E2', text: '#1B1B1B' }
 };
 
 export const getCategoryStyle = (category: string = 'default'): CategoryStyle => {

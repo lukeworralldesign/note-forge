@@ -1,5 +1,12 @@
 import { HERO_COLORS } from './resources/colors';
 
+export interface CalendarEvent {
+  title: string;
+  start: string;
+  end: string;
+  description?: string;
+}
+
 export interface Note {
   id: string;
   content: string;
@@ -10,7 +17,10 @@ export interface Note {
   headline: string;
   tags: string[];
   embedding?: number[];
-  ragEnabled: boolean; // New property to track if context was used
+  ragEnabled: boolean;
+  intent?: 'task' | 'reference' | 'ephemeral';
+  calendarSync?: boolean;
+  eventDetails?: CalendarEvent;
 }
 
 export interface AIReponse {
@@ -18,12 +28,16 @@ export interface AIReponse {
   headline: string;
   tags: string[];
   embedding?: number[];
+  intent?: 'task' | 'reference' | 'ephemeral';
+  calendarSync?: boolean;
+  eventDetails?: CalendarEvent;
 }
 
 export interface ServiceKeys {
   tasks?: string; 
   gemini?: string;
   clientId?: string;
+  calendar?: string;
 }
 
 export type ModelTier = 'flash' | 'pro';
@@ -65,9 +79,9 @@ export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
 
 export const getCategoryStyle = (category: string = 'default'): CategoryStyle => {
   const cat = category.toLowerCase();
-  if (cat === 'list') return CATEGORY_STYLES.lists;
+  if (cat === 'list' || cat === 'ephemeral') return CATEGORY_STYLES.lists;
   if (cat === 'thought') return CATEGORY_STYLES.thoughts;
-  if (cat === 'reminder') return CATEGORY_STYLES.reminders;
+  if (cat === 'reminder' || cat === 'task') return CATEGORY_STYLES.reminders;
   if (cat === 'project') return CATEGORY_STYLES.projects;
   if (cat === 'idea') return CATEGORY_STYLES.ideas;
   

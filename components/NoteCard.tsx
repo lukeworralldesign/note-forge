@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Note, ThemeColors, getCategoryStyle, ServiceKeys } from '../types';
 import { reformatNoteContent } from '../services/geminiService';
@@ -36,22 +35,15 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
   };
 
   const handleExportToKeep = async () => {
-    const shareData = {
-      title: note.headline,
-      text: note.content,
-    };
-
+    const shareData = { title: note.headline, text: note.content };
     if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
       try {
         await navigator.share(shareData);
         setSyncStatus('success');
         setTimeout(() => setSyncStatus('idle'), 2000);
         return;
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') return;
-      }
+      } catch (err) { if ((err as Error).name === 'AbortError') return; }
     }
-
     const fullText = `${note.headline}\n\n${note.content}`;
     try { await navigator.clipboard.writeText(fullText); } catch (e) {}
     setSyncStatus('success');
@@ -66,63 +58,69 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
         setIsSyncing(true);
         const token = serviceKeys.tasks.trim();
         const LIST_TITLE = 'note-forge';
-        
         try {
             const listsResponse = await fetch('https://www.googleapis.com/tasks/v1/users/@me/lists', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            
             if (!listsResponse.ok) throw new Error('LIST_FETCH_FAIL');
             const listsData = await listsResponse.json();
-            
             let targetListId = listsData.items?.find((l: any) => l.title === LIST_TITLE)?.id;
-
             if (!targetListId) {
                 const createListResponse = await fetch('https://www.googleapis.com/tasks/v1/users/@me/lists', {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title: LIST_TITLE })
                 });
                 if (!createListResponse.ok) throw new Error('LIST_CREATE_FAIL');
                 const newList = await createListResponse.json();
                 targetListId = newList.id;
             }
-
-            const TWO_HOURS_IN_MS = 2 * 60 * 60 * 1000;
-            const dueTimestamp = new Date(Date.now() + TWO_HOURS_IN_MS).toISOString();
-
             const response = await fetch(`https://www.googleapis.com/tasks/v1/lists/${targetListId}/tasks`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    title: note.headline,
-                    notes: note.content,
-                    due: dueTimestamp 
-                })
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: note.headline, notes: note.content })
             });
-            
-            const data = await response.json();
             if (!response.ok) throw new Error("API_FAIL");
-
             setSyncStatus('success');
             setTimeout(() => setSyncStatus('idle'), 2000);
         } catch (e) {
             setSyncStatus('error');
             setTimeout(() => setSyncStatus('idle'), 3000);
-        } finally {
-            setIsSyncing(false);
-        }
+        } finally { setIsSyncing(false); }
         return;
     }
-    
     try { await navigator.clipboard.writeText(`${note.headline}\n\n${note.content}`); } catch (e) {}
     window.open('https://tasks.google.com/', '_blank');
+  };
+
+  const handleExportToCalendar = async () => {
+    if (!note.eventDetails) return;
+    if (serviceKeys?.tasks) {
+        setIsSyncing(true);
+        const token = serviceKeys.tasks.trim();
+        try {
+            const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    summary: note.eventDetails.title,
+                    description: note.content,
+                    start: { dateTime: note.eventDetails.start },
+                    end: { dateTime: note.eventDetails.end }
+                })
+            });
+            if (!response.ok) throw new Error("API_FAIL");
+            setSyncStatus('success');
+            setTimeout(() => setSyncStatus('idle'), 2000);
+        } catch (e) {
+            setSyncStatus('error');
+            setTimeout(() => setSyncStatus('idle'), 3000);
+        } finally { setIsSyncing(false); }
+    } else {
+        const { title, start, end } = note.eventDetails;
+        const gCalUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&details=${encodeURIComponent(note.content)}&dates=${start.replace(/[-:]/g, '')}/${end.replace(/[-:]/g, '')}`;
+        window.open(gCalUrl, '_blank');
+    }
   };
 
   const handleReformat = async () => {
@@ -144,6 +142,9 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
   const style = getCategoryStyle(note.category);
   const cardBg = theme.key === 'pro' ? '#1E2228' : '#22241B';
 
+  const isProcessed = note.aiStatus === 'completed';
+  const showRecommended = (intent: string) => isProcessed && note.intent === intent;
+
   return (
     <div className="masonry-item group relative">
       <div className={`${theme.key === 'pro' ? 'bg-[#1E2228]' : 'bg-[#22241B]'} rounded-[1.5rem] p-5 border ${theme.surfaceBorder} overflow-hidden transition-all duration-300 relative`}>
@@ -159,6 +160,11 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
                     <span>Context</span>
                 </div>
             )}
+            {isProcessed && note.intent && (
+              <span className="px-2 py-1 rounded-lg bg-white/5 text-[8px] font-black uppercase tracking-widest opacity-40 text-white">
+                {note.intent}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => onEdit(note)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#3F4042] text-[#8E9099]"><span className="material-symbols-rounded text-[18px]">edit</span></button>
@@ -169,7 +175,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
 
         <h3 className="text-xl font-bold text-[#E3E2E6] mb-2 leading-tight">{note.headline}</h3>
         
-        {/* Content Area with Fade Logic */}
         <div 
             onClick={() => isLong && setIsExpanded(!isExpanded)}
             className={`relative group/content cursor-pointer mb-6 transition-all duration-500 ease-in-out ${isExpanded ? 'max-h-[1000px]' : 'max-h-32'}`}
@@ -177,18 +182,9 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             <p className={`${theme.subtleText} text-base font-normal leading-relaxed whitespace-pre-wrap ${isReformatting ? 'opacity-50' : ''}`}>
                 {isExpanded ? note.content : previewText}
             </p>
-            
-            {/* Fade Overlay for long notes */}
             {isLong && !isExpanded && (
-                <div 
-                    className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none transition-opacity duration-300"
-                    style={{ 
-                        background: `linear-gradient(transparent, ${cardBg})`
-                    }}
-                />
+                <div className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none transition-opacity duration-300" style={{ background: `linear-gradient(transparent, ${cardBg})` }} />
             )}
-
-            {/* Hint for long notes */}
             {isLong && (
                 <div className={`mt-2 text-[9px] font-black uppercase tracking-widest ${theme.primaryText} opacity-0 group-hover/content:opacity-40 transition-opacity`}>
                     {isExpanded ? 'Click to collapse' : 'Click to read more'}
@@ -202,26 +198,70 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Calendar Sync - Circular */}
+          {note.calendarSync && (
+            <button 
+              onClick={handleExportToCalendar}
+              className="w-12 h-12 flex-shrink-0 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 bg-[#C2E7FF] text-[#003258] animate-in zoom-in duration-300"
+              title="Schedule Calendar Event"
+            >
+              <span className="material-symbols-rounded text-2xl">calendar_month</span>
+            </button>
+          )}
+
+          {/* Tasks - Circular */}
           <button 
             onClick={handleExportToTasks} 
             disabled={isSyncing}
-            className={`w-12 h-12 flex-shrink-0 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 ${syncStatus === 'success' && !isSyncing ? 'bg-[#C1CC94] text-[#191A12]' : syncStatus === 'error' ? 'bg-[#FFB4AB] text-[#601410]' : 'bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA]'}`}
+            className={`w-12 h-12 flex-shrink-0 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 relative ${syncStatus === 'success' && !isSyncing ? 'bg-[#C1CC94] text-[#191A12]' : syncStatus === 'error' ? 'bg-[#FFB4AB] text-[#601410]' : 'bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA]'} ${showRecommended('task') ? 'ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#3F7DE3]' : ''}`}
+            title="Send to Tasks"
           >
             <span className={`material-symbols-rounded text-2xl ${isSyncing ? 'animate-spin' : ''}`}>{isSyncing ? 'sync' : (syncStatus === 'error' ? 'error' : 'task_alt')}</span>
+            {showRecommended('task') && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#3F7DE3] rounded-full border border-black shadow-sm" />}
           </button>
           
+          {/* Keep - Pill */}
           <button 
             onClick={handleExportToKeep}
-            className={`flex-1 h-12 rounded-full transition-all border border-[#444746] ${theme.surface} ${theme.primaryText} text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 active:scale-95`}
+            className={`flex-1 min-w-[80px] h-12 rounded-full transition-all border border-[#444746] ${theme.surface} flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 active:scale-95 relative ${showRecommended('ephemeral') ? 'ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#D9C559]' : ''}`}
+            title="Send to Keep"
           >
-            <span className="material-symbols-rounded text-lg">
+            <span 
+              className="material-symbols-rounded text-xl" 
+              style={{ color: showRecommended('ephemeral') ? '#D9C559' : undefined }}
+            >
                 {syncStatus === 'success' ? 'done' : 'share'}
             </span>
-            {syncStatus === 'success' ? 'Shared' : 'To Keep'}
+            <span 
+              className="text-[10px] font-black uppercase tracking-widest"
+              style={{ color: showRecommended('ephemeral') ? '#D9C559' : undefined }}
+            >
+              Keep
+            </span>
+            {showRecommended('ephemeral') && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#D9C559] rounded-full border border-black shadow-sm" />}
           </button>
           
-          <button onClick={handleExportToObsidian} className={`flex-1 h-12 rounded-full border border-[#444746] ${theme.surface} ${theme.primaryText} text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 transition-colors`}><span className="material-symbols-rounded text-lg">diamond</span>Obsidian</button>
+          {/* Obsidian - Pill */}
+          <button 
+            onClick={handleExportToObsidian} 
+            className={`flex-1 min-w-[100px] h-12 rounded-full border border-[#444746] ${theme.surface} flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 transition-colors relative ${showRecommended('reference') ? 'ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#D0BCFF]' : ''}`}
+            title="Send to Obsidian"
+          >
+            <span 
+              className="material-symbols-rounded text-xl"
+              style={{ color: showRecommended('reference') ? '#D0BCFF' : undefined }}
+            >
+              diamond
+            </span>
+            <span 
+              className="text-[10px] font-black uppercase tracking-widest"
+              style={{ color: showRecommended('reference') ? '#D0BCFF' : undefined }}
+            >
+              Obsidian
+            </span>
+            {showRecommended('reference') && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#D0BCFF] rounded-full border border-black shadow-sm" />}
+          </button>
         </div>
 
         {showDeleteConfirm && (

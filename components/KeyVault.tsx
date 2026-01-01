@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { ThemeColors, ServiceKeys } from '../types';
 
@@ -56,11 +55,11 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
     try {
         tokenClient.current = google.accounts.oauth2.initTokenClient({
             client_id: keys.clientId.trim(),
-            scope: 'https://www.googleapis.com/auth/tasks',
+            scope: 'https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/calendar.events',
             callback: (response: any) => {
                 setIsLinking(false);
                 if (response.access_token) {
-                    const updated = { ...keys, tasks: response.access_token };
+                    const updated = { ...keys, tasks: response.access_token, calendar: response.access_token };
                     setKeys(updated);
                     onKeysUpdated(updated);
                     localStorage.setItem('note_forge_service_keys', JSON.stringify(updated));
@@ -74,7 +73,7 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
     }
   };
 
-  const isTasksConnected = !!keys.tasks;
+  const isConnected = !!keys.tasks || !!keys.calendar;
   const hasClientId = !!keys.clientId && keys.clientId.length > 20;
 
   return (
@@ -98,7 +97,7 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
                     w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-md active:scale-90 bg-white
                     ${(!hasClientId || isLinking) ? 'opacity-30 cursor-not-allowed grayscale' : 'hover:scale-105'}
                 `}
-                title={isTasksConnected ? "Identity Active" : "Authorize Google Sync"}
+                title={isConnected ? "Identity Active" : "Authorize Google Sync"}
             >
                 {isLinking ? (
                     <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
@@ -112,8 +111,7 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
                 )}
             </button>
             
-            {/* Success Indicator Badge */}
-            {isTasksConnected && !isLinking && (
+            {isConnected && !isLinking && (
                 <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#C1CC94] rounded-full border border-[#191A12] flex items-center justify-center animate-in zoom-in-50 duration-300 shadow-sm pointer-events-none">
                     <span className="material-symbols-rounded text-[10px] text-[#191A12] font-black">done</span>
                 </div>

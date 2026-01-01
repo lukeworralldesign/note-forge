@@ -67,24 +67,44 @@ interface CategoryStyle {
 }
 
 export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
-  thoughts: { bg: HERO_COLORS.LAVENDER, text: HERO_COLORS.CHARCOAL },
-  ideas: { bg: HERO_COLORS.ELECTRIC_BLUE, text: HERO_COLORS.CHARCOAL },
-  reminders: { bg: HERO_COLORS.BRIGHT_YELLOW, text: HERO_COLORS.CHARCOAL },
-  coding: { bg: HERO_COLORS.MINT, text: HERO_COLORS.CHARCOAL },
-  projects: { bg: HERO_COLORS.PURE_ORANGE, text: HERO_COLORS.CHARCOAL },
-  lists: { bg: HERO_COLORS.PERIWINKLE, text: HERO_COLORS.CHARCOAL },
-  research: { bg: HERO_COLORS.CYAN, text: HERO_COLORS.CHARCOAL },
-  personal: { bg: HERO_COLORS.BRIGHT_PINK, text: HERO_COLORS.CHARCOAL },
-  default: { bg: HERO_COLORS.SILVER, text: HERO_COLORS.CHARCOAL }
+  idea: { bg: '#B7F397', text: '#215107' },
+  reference: { bg: '#FFB0C8', text: '#650B33' },
+  list: { bg: '#A8C7FA', text: '#00315F' },
+  project: { bg: '#FFDCC1', text: '#2E1500' },
+  goal: { bg: '#E2C54B', text: '#3A3000' },
+  todo: { bg: '#FFB4AB', text: '#690005' },
+  urgent: { bg: '#FFB0CD', text: '#640030' },
+  work: { bg: '#BAC3FF', text: '#001A4C' },
+  personal: { bg: '#20E3B2', text: '#00382C' },
+  finance: { bg: '#6DD58C', text: '#00391C' },
+  health: { bg: '#FFD9E2', text: '#5C1126' },
+  tech: { bg: '#4FD8EB', text: '#00363D' },
+  journal: { bg: '#D0BCFF', text: '#381E72' },
+  meeting: { bg: '#EDB1FF', text: '#54006F' },
+  travel: { bg: '#D1E4FF', text: '#00315D' },
+  recipe: { bg: '#FFB784', text: '#4E2600' },
+  code: { bg: '#BCC7D9', text: '#273141' },
+  quote: { bg: '#EAE1D9', text: '#1E1B16' },
+  review: { bg: '#98F1BF', text: '#003922' },
+  archive: { bg: '#C4C7C5', text: '#2E3130' },
+  default: { bg: '#C4C7C5', text: '#2E3130' }
 };
 
 export const getCategoryStyle = (category: string = 'default'): CategoryStyle => {
-  const cat = category.toLowerCase();
-  if (cat === 'list' || cat === 'ephemeral') return CATEGORY_STYLES.lists;
-  if (cat === 'thought') return CATEGORY_STYLES.thoughts;
-  if (cat === 'reminder' || cat === 'task') return CATEGORY_STYLES.reminders;
-  if (cat === 'project') return CATEGORY_STYLES.projects;
-  if (cat === 'idea') return CATEGORY_STYLES.ideas;
+  const cat = category.toLowerCase().trim();
   
-  return CATEGORY_STYLES[cat] || CATEGORY_STYLES.default;
+  // Direct match
+  if (CATEGORY_STYLES[cat]) return CATEGORY_STYLES[cat];
+  
+  // Pluralization / Variation handling
+  if (cat === 'ideas') return CATEGORY_STYLES.idea;
+  if (cat === 'lists' || cat === 'ephemeral') return CATEGORY_STYLES.list;
+  if (cat === 'thoughts' || cat === 'thought') return CATEGORY_STYLES.journal;
+  if (cat === 'reminders' || cat === 'reminder' || cat === 'tasks') return CATEGORY_STYLES.todo;
+  if (cat === 'projects') return CATEGORY_STYLES.project;
+  if (cat === 'coding') return CATEGORY_STYLES.code;
+  if (cat === 'finances') return CATEGORY_STYLES.finance;
+  if (cat === 'research') return CATEGORY_STYLES.reference;
+  
+  return CATEGORY_STYLES.default;
 };

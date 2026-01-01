@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,7 +37,7 @@
             -webkit-tap-highlight-color: transparent;
             font-family: "Google Sans Flex", sans-serif;
             color: #E3E2E6;
-            overflow: hidden;
+            overflow: hidden; /* Keep hidden to prevent browser-level bounce */
         }
 
         #root { 
@@ -47,6 +46,7 @@
             display: flex;
             flex-direction: column;
             position: relative;
+            overflow: hidden;
         }
 
         /* Standard scrollbar removal for cleaner immersion */

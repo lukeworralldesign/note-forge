@@ -1,14 +1,12 @@
-note-forge
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-note-forge is a 'fire-and-forget' notes aggregator that aims to remove the organisational friction of other notes apps, allowing the user to fire off multiple notes in quick succession which are automatically sorted.
+# Run and deploy your AI Studio app
 
-the tool uses the user's Gemini API to create note titles and catagorisation, and as such the user should be aware of the privacy implications of this approach. future iterations of the tool may include 'bring-your-own-model' functionality. be aware of which information you are comfortable with Google Gemini to handle.
+This contains everything you need to run your app locally.
 
-this is my first attempt at 'vibe-coding' an app, so I'm well aware that it's code is probably far from par. feel free to provide feedback!
-
-ta,
-
-luke
+View your app in AI Studio: https://ai.studio/apps/drive/123aQqNhDO13-bLgRutQqAUaFf4sxEKqr
 
 ## Run Locally
 

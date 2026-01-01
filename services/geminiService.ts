@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIReponse, ModelTier } from "../types";
 // @ts-ignore
@@ -6,23 +7,57 @@ import { pipeline, env } from '@xenova/transformers';
 // Configure transformers.js for browser environment
 env.allowLocalModels = false;
 env.useBrowserCache = true;
+// Explicitly set the remote host to Hugging Face's CDN to avoid fetch issues in some environments
+env.remoteHost = 'https://huggingface.co';
+env.remotePathTemplate = '{model}/resolve/{revision}/{file}';
 
 let currentTier: ModelTier = 'flash';
 let localEmbedder: any = null;
+let initializationPromise: Promise<any> | null = null;
 
 export const setModelTier = (tier: ModelTier) => {
   currentTier = tier;
 };
 
-export const initLocalEmbedder = async () => {
+/**
+ * Initializes the local embedder with retry logic for robust network handling.
+ */
+export const initLocalEmbedder = async (retries = 2) => {
   if (localEmbedder) return localEmbedder;
-  try {
-    localEmbedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-    return localEmbedder;
-  } catch (e) {
-    console.error("Local embedder initialization failed.", e);
+  if (initializationPromise) return initializationPromise;
+
+  initializationPromise = (async () => {
+    let lastError: any = null;
+    for (let i = 0; i <= retries; i++) {
+      try {
+        // Use a lightweight model for better fetch success rates in browsers
+        localEmbedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+          progress_callback: (p: any) => {
+            if (p.status === 'progress') {
+                // Potential for a progress bar in UI later
+            }
+          }
+        });
+        console.log("Local embedder initialized successfully.");
+        return localEmbedder;
+      } catch (e: any) {
+        lastError = e;
+        if (e.message?.includes('fetch') || e instanceof TypeError) {
+          console.warn(`Local embedder fetch attempt ${i + 1} failed. ${i < retries ? 'Retrying...' : 'Falling back to keyword search.'}`);
+          // Wait before retrying (exponential backoff)
+          if (i < retries) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+        } else {
+          // If it's not a fetch error, break early
+          break;
+        }
+      }
+    }
+    console.error("Local embedder failed to initialize after retries:", lastError);
+    initializationPromise = null; // Allow future retry if needed
     return null;
-  }
+  })();
+
+  return initializationPromise;
 };
 
 export const getLocalEmbedding = async (text: string): Promise<number[] | null> => {
@@ -32,7 +67,7 @@ export const getLocalEmbedding = async (text: string): Promise<number[] | null> 
     const output = await model(text, { pooling: 'mean', normalize: true });
     return Array.from(output.data) as number[];
   } catch (e) {
-    console.error("Local embedding generation failed", e);
+    console.warn("Local embedding generation failed silently", e);
     return null;
   }
 };
@@ -50,9 +85,12 @@ const getContextPDF = (): string | null => {
   }
 };
 
-// Fix: Corrected property names 'content' -> 'contents' and 'embedding' -> 'embeddings' to match API schema requirements identified in error logs
 export const getTextEmbedding = async (text: string): Promise<number[] | undefined> => {
     try {
+        // Only attempt cloud embedding if an API key is present
+        if (!process.env.API_KEY || process.env.API_KEY === 'undefined') {
+            throw new Error("No API Key");
+        }
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.embedContent({
             model: 'text-embedding-004',
@@ -60,7 +98,10 @@ export const getTextEmbedding = async (text: string): Promise<number[] | undefin
         });
         return response.embeddings[0].values;
     } catch (e) {
-        console.warn("Cloud embedding failed, falling back to local", e);
+        // Only log warning if it's an actual failure, not just missing key
+        if (process.env.API_KEY) {
+            console.warn("Cloud embedding failed, falling back to local", e);
+        }
         const local = await getLocalEmbedding(text);
         return local || undefined;
     }

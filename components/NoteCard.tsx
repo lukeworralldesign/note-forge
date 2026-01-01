@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { Note, ThemeColors, getCategoryStyle, ServiceKeys } from '../types';
 import { reformatNoteContent } from '../services/geminiService';
 
@@ -17,6 +18,7 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
   const [isSyncing, setIsSyncing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     if (!showDeleteConfirm) return;
@@ -132,7 +134,15 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     } catch (e) { if (onAiError) onAiError(); } finally { setIsReformatting(false); }
   };
 
+  const { previewText, isLong } = useMemo(() => {
+    const words = note.content.trim().split(/\s+/);
+    const isLong = words.length > 25;
+    const previewText = isLong ? words.slice(0, 25).join(' ') + '...' : note.content;
+    return { previewText, isLong };
+  }, [note.content]);
+
   const style = getCategoryStyle(note.category);
+  const cardBg = theme.key === 'pro' ? '#1E2228' : '#22241B';
 
   return (
     <div className="masonry-item group relative">
@@ -158,7 +168,33 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
         </div>
 
         <h3 className="text-xl font-bold text-[#E3E2E6] mb-2 leading-tight">{note.headline}</h3>
-        <p className={`${theme.subtleText} text-base font-normal leading-relaxed mb-6 whitespace-pre-wrap ${isReformatting ? 'opacity-50' : ''}`}>{note.content}</p>
+        
+        {/* Content Area with Fade Logic */}
+        <div 
+            onClick={() => isLong && setIsExpanded(!isExpanded)}
+            className={`relative group/content cursor-pointer mb-6 transition-all duration-500 ease-in-out ${isExpanded ? 'max-h-[1000px]' : 'max-h-32'}`}
+        >
+            <p className={`${theme.subtleText} text-base font-normal leading-relaxed whitespace-pre-wrap ${isReformatting ? 'opacity-50' : ''}`}>
+                {isExpanded ? note.content : previewText}
+            </p>
+            
+            {/* Fade Overlay for long notes */}
+            {isLong && !isExpanded && (
+                <div 
+                    className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none transition-opacity duration-300"
+                    style={{ 
+                        background: `linear-gradient(transparent, ${cardBg})`
+                    }}
+                />
+            )}
+
+            {/* Hint for long notes */}
+            {isLong && (
+                <div className={`mt-2 text-[9px] font-black uppercase tracking-widest ${theme.primaryText} opacity-0 group-hover/content:opacity-40 transition-opacity`}>
+                    {isExpanded ? 'Click to collapse' : 'Click to read more'}
+                </div>
+            )}
+        </div>
 
         <div className="flex flex-wrap gap-2 mb-6">
             {note.tags.map((tag, idx) => (

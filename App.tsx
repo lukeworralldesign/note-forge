@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Note, ModelTier, ThemeColors, getCategoryStyle, ServiceKeys } from './types';
 import { setModelTier as setServiceTier, getLocalEmbedding, initLocalEmbedder, processNoteWithAI } from './services/geminiService';
@@ -77,6 +76,7 @@ const App: React.FC = () => {
   const swipeLockedOn = useRef<'insights' | 'overview' | 'pull' | null>(null);
   const screenWidth = useRef(window.innerWidth);
   const screenHeight = useRef(window.innerHeight);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleResize = () => { 
@@ -103,15 +103,24 @@ const App: React.FC = () => {
     const deltaX = currentX - touchStartPos.current.x;
     const deltaY = currentY - touchStartPos.current.y;
 
+    const currentScrollTop = scrollContainerRef.current?.scrollTop || 0;
+
     if (!isSwiping) {
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
+      
+      // Horizontal swipe locks
       if (absX > 15 && absX > absY * 1.5) {
         setIsSwiping(true);
         if (showInsights) swipeLockedOn.current = 'insights';
         else if (showOverview) swipeLockedOn.current = 'overview';
         else swipeLockedOn.current = deltaX > 0 ? 'insights' : 'overview';
-      } else if (deltaY > 15 && absY > absX * 1.5 && window.scrollY === 0 && !showInsights && !showOverview) {
+      } 
+      // VERTICAL PULL LOGIC: 
+      // 1. Must be scrolling DOWN (deltaY > 0)
+      // 2. Must be more vertical than horizontal
+      // 3. CRITICAL: Must be at the very top of the scrollable container
+      else if (deltaY > 15 && absY > absX * 1.5 && currentScrollTop <= 2 && !showInsights && !showOverview) {
         setIsSwiping(true);
         swipeLockedOn.current = 'pull';
       } else if (absY > 20) {
@@ -122,6 +131,13 @@ const App: React.FC = () => {
 
     if (isSwiping) {
       if (swipeLockedOn.current === 'pull') {
+        // Double check we are still at the top or it's a valid pull
+        if (currentScrollTop > 5 && pullOffset === 0) {
+            setIsSwiping(false);
+            swipeLockedOn.current = null;
+            return;
+        }
+        
         const maxStretch = screenHeight.current * 0.25;
         const pullDistance = Math.max(0, deltaY);
         const resistance = 0.4;
@@ -209,7 +225,15 @@ const App: React.FC = () => {
         });
         setOramaDb(db);
       } catch (e) {
-        console.error("Engine Init Failed", e);
+        console.error("Critical Engine Init Failure:", e);
+        try {
+            const fallbackDb = await create({
+                schema: { content: 'string', headline: 'string', category: 'string', tags: 'string[]' }
+            });
+            setOramaDb(fallbackDb);
+        } catch (innerErr) {
+            console.error("Total search engine failure:", innerErr);
+        }
       } finally {
         setIsIndexing(false);
       }
@@ -230,6 +254,16 @@ const App: React.FC = () => {
               category: note.category,
               tags: note.tags,
               embedding: note.embedding
+            });
+          } catch (e) { }
+        } else {
+          try {
+            await insert(oramaDb, {
+                id: note.id,
+                content: note.content,
+                headline: note.headline,
+                category: note.category,
+                tags: note.tags
             });
           } catch (e) { }
         }
@@ -292,7 +326,10 @@ const App: React.FC = () => {
     setEditRagEnabled(note.ragEnabled);
     setShowOverview(false);
     setShowInsights(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handleCancelEdit = () => {
@@ -345,7 +382,7 @@ const App: React.FC = () => {
           category: 'Captured', 
           headline: sharedTitle || 'Incoming Resource', 
           tags: ['Shared'],
-          ragEnabled: true // Default share to use context if available
+          ragEnabled: true 
         };
 
         setNotes(prev => [newNote, ...prev]);
@@ -408,13 +445,22 @@ const App: React.FC = () => {
     if (!oramaDb || !searchQuery.trim()) { setSearchResults(null); return; }
     const runSearch = async () => {
       const queryEmbedding = await getLocalEmbedding(searchQuery);
-      const results = await search(oramaDb, {
-        term: searchQuery,
-        limit: 20,
-        boost: { headline: 2, category: 1.5 },
-        ...(queryEmbedding ? { vector: { property: 'embedding', value: queryEmbedding, similarity: 0.6 } } : {})
-      });
-      setSearchResults(results.hits.map((h: any) => h.id));
+      try {
+        const results = await search(oramaDb, {
+            term: searchQuery,
+            limit: 20,
+            boost: { headline: 2, category: 1.5 },
+            ...(queryEmbedding ? { vector: { property: 'embedding', value: queryEmbedding, similarity: 0.6 } } : {})
+          });
+          setSearchResults(results.hits.map((h: any) => h.id));
+      } catch (e) {
+          const results = await search(oramaDb, {
+            term: searchQuery,
+            limit: 20,
+            boost: { headline: 2, category: 1.5 }
+          });
+          setSearchResults(results.hits.map((h: any) => h.id));
+      }
     };
     const timer = setTimeout(runSearch, 300);
     return () => clearTimeout(timer);
@@ -448,7 +494,9 @@ const App: React.FC = () => {
     setShowInsights(false);
     setTimeout(() => {
       const el = document.getElementById(`note-${id}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (el && scrollContainerRef.current) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }, 100);
   };
 
@@ -487,13 +535,19 @@ const App: React.FC = () => {
 
   const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || showInsights || isSwiping || isShareLaunch) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
 
-  // Pull indicator rotation/scaling logic
   const pullProgress = Math.min(1, pullOffset / 80);
   const pullRotation = pullOffset * 2.5;
   const pullScale = 0.5 + (pullProgress * 0.7);
 
   return (
-    <div className="min-h-dvh flex flex-col transition-colors duration-500 relative overflow-x-hidden touch-pan-y" style={{ backgroundColor: theme.bg }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+    <div 
+        ref={scrollContainerRef}
+        className="h-dvh flex flex-col transition-colors duration-500 relative overflow-x-hidden overflow-y-auto touch-pan-y no-scrollbar" 
+        style={{ backgroundColor: theme.bg }} 
+        onTouchStart={handleTouchStart} 
+        onTouchMove={handleTouchMove} 
+        onTouchEnd={handleTouchEnd}
+    >
       
       <div 
         className={`fixed top-0 left-0 right-0 z-[1000] flex justify-center pointer-events-none transition-opacity duration-300 ${pullOffset > 10 || isRefreshing ? 'opacity-100' : 'opacity-0'}`}
@@ -652,7 +706,7 @@ const App: React.FC = () => {
 
       {noteToDelete && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl animate-in fade-in duration-300 overflow-hidden">
-            <div className="bg-[#601410] w-full max-w-sm rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-[#8C1D18] animate-in zoom-in-95 duration-300 relative">
+            <div className="bg-[#601410] w-full max-sm rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-[#8C1D18] animate-in zoom-in-95 duration-300 relative">
                 <div className="flex flex-col items-center text-center">
                     <div className="w-16 h-16 rounded-full bg-[#3F1111] flex items-center justify-center mb-6 text-[#FFB4AB]"><span className="material-symbols-rounded text-3xl">delete</span></div>
                     <h4 className="text-2xl font-bold text-[#FFFFFF] mb-2 tracking-tight">Purge Entry?</h4>

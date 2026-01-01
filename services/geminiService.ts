@@ -6,10 +6,12 @@ import { pipeline, env } from '@xenova/transformers';
 
 // Configure transformers.js for browser environment
 env.allowLocalModels = false;
+env.allowRemoteModels = true;
 env.useBrowserCache = true;
-// Explicitly set the remote host to Hugging Face's CDN to avoid fetch issues in some environments
+// Explicitly set the remote host and template to ensure reliable fetches from Hugging Face
 env.remoteHost = 'https://huggingface.co';
-env.remotePathTemplate = '{model}/resolve/{revision}/{file}';
+// The template should end with a slash; the library appends the specific filename.
+env.remotePathTemplate = '{model}/resolve/{revision}/';
 
 let currentTier: ModelTier = 'flash';
 let localEmbedder: any = null;
@@ -42,7 +44,7 @@ export const initLocalEmbedder = async (retries = 2) => {
         return localEmbedder;
       } catch (e: any) {
         lastError = e;
-        if (e.message?.includes('fetch') || e instanceof TypeError) {
+        if (e.message?.includes('fetch') || e instanceof TypeError || e.message?.includes('locate file')) {
           console.warn(`Local embedder fetch attempt ${i + 1} failed. ${i < retries ? 'Retrying...' : 'Falling back to keyword search.'}`);
           // Wait before retrying (exponential backoff)
           if (i < retries) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));

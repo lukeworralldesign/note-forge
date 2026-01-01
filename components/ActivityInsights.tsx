@@ -36,16 +36,11 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
     return counts;
   }, [notes]);
 
-  // Generate 52 weeks (364 days) of history aligned to Mondays
+  // Generate 2026 Calendar Year
   const { weeks, totalNotes } = useMemo(() => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    
-    // Create a start point 364 days ago
-    const start = new Date(now);
-    start.setDate(start.getDate() - 364); 
-    
-    // Align to the nearest Monday
+    // Start at the Monday of the week containing Jan 1, 2026
+    // Jan 1, 2026 is a Thursday.
+    const start = new Date(2026, 0, 1);
     const dayOfWeek = start.getDay(); 
     const diffToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     start.setDate(start.getDate() - diffToMon);
@@ -54,6 +49,7 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
     let current = new Date(start);
     let totalCount = 0;
 
+    // 53 weeks covers the full year 2026 and standard alignment
     for (let w = 0; w < 53; w++) {
       const weekDays: Date[] = [];
       let monthLabel: string | null = null;
@@ -62,23 +58,27 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
         const day = new Date(current);
         weekDays.push(day);
         
-        // Month label logic: Only show at the start of a week if it's the first week of that month
+        // Month label logic: Only show if this day is the 1st of a month OR first Monday of a month
         if (day.getDate() <= 7 && d === 0) { 
             monthLabel = day.toLocaleString('default', { month: 'short' });
         }
         
-        const dStr = day.toISOString().split('T')[0];
-        totalCount += (activityData[dStr] || 0);
+        // Only count notes that actually fall in 2026 for the summary
+        if (day.getFullYear() === 2026) {
+          const dStr = day.toISOString().split('T')[0];
+          totalCount += (activityData[dStr] || 0);
+        }
         current.setDate(current.getDate() + 1);
       }
       weeksList.push({ monthLabel, days: weekDays });
     }
 
-    // Chronological order: Oldest (January or -364d) at top
     return { weeks: weeksList, totalNotes: totalCount };
   }, [activityData]);
 
-  const getHeatStyle = (count: number, isFuture: boolean) => {
+  const getHeatStyle = (count: number, isFuture: boolean, isYear2026: boolean) => {
+    // Dim days not in 2026
+    if (!isYear2026) return { backgroundColor: 'rgba(255,255,255,0.01)', opacity: 0.3 };
     if (isFuture) return { backgroundColor: 'rgba(255,255,255,0.02)' };
     if (count === 0) return { backgroundColor: 'rgba(255,255,255,0.05)' };
     
@@ -121,7 +121,7 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
               insights
             </h1>
             <div className={`flex items-center gap-2 ${theme.primaryText} text-[10px] font-bold uppercase tracking-[0.2em] mt-2 opacity-60`}>
-              {totalNotes} CONTRIBUTIONS IN THE LAST YEAR
+              {totalNotes} CONTRIBUTIONS IN 2026
             </div>
           </div>
           <button 
@@ -149,17 +149,18 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
                             {week.days.map((date) => {
                                 const dStr = date.toISOString().split('T')[0];
                                 const count = activityData[dStr] || 0;
+                                const isYear2026 = date.getFullYear() === 2026;
                                 const isFuture = date > new Date();
                                 return (
                                     <button 
                                         key={dStr}
                                         onClick={() => count > 0 && onDateClick(dStr)}
-                                        disabled={count === 0 || isFuture}
+                                        disabled={count === 0 || isFuture || !isYear2026}
                                         className={`
                                             aspect-square rounded-[3px] transition-all duration-300
-                                            ${count > 0 ? 'hover:scale-125 hover:z-10 cursor-pointer hover:rounded-md active:scale-90' : 'cursor-default'}
+                                            ${(count > 0 && isYear2026) ? 'hover:scale-125 hover:z-10 cursor-pointer hover:rounded-md active:scale-90' : 'cursor-default'}
                                         `}
-                                        style={getHeatStyle(count, isFuture)}
+                                        style={getHeatStyle(count, isFuture, isYear2026)}
                                         title={`${dStr}: ${count} notes`}
                                     />
                                 );
@@ -172,11 +173,11 @@ const ActivityInsights: React.FC<ActivityInsightsProps> = ({
             <div className="w-full max-w-[400px] flex items-center justify-end gap-3 pb-32 text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">
                 <span>Less</span>
                 <div className="flex gap-1.5">
-                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(0, false)}></div>
-                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(1, false)}></div>
-                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(2, false)}></div>
-                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(4, false)}></div>
-                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(5, false)}></div>
+                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(0, false, true)}></div>
+                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(1, false, true)}></div>
+                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(2, false, true)}></div>
+                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(4, false, true)}></div>
+                    <div className="w-3.5 h-3.5 rounded-[2px]" style={getHeatStyle(5, false, true)}></div>
                 </div>
                 <span>More</span>
             </div>

@@ -409,6 +409,13 @@ const App: React.FC = () => {
     setNoteToDelete(null);
   };
 
+  const handleKeyError = () => {
+    // If a token is 401'd, clear the stale keys in local state
+    const updatedKeys = { ...serviceKeys, tasks: undefined, calendar: undefined, expiresAt: undefined };
+    setServiceKeys(updatedKeys);
+    localStorage.setItem('note_forge_service_keys', JSON.stringify(updatedKeys));
+  };
+
   useEffect(() => {
     if (!oramaDb || !searchQuery.trim()) { setSearchResults(null); return; }
     const runSearch = async () => {
@@ -583,7 +590,7 @@ const App: React.FC = () => {
             <div className="masonry-grid">
               {filteredNotes.length > 0 ? filteredNotes.map(note => (
                 <div id={`note-${note.id}`} key={note.id} className="anti-alias-item">
-                  <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={handleEditNote} theme={theme} serviceKeys={serviceKeys} />
+                  <NoteCard note={note} onDelete={(id) => setNotes(p => p.filter(n => n.id !== id))} onUpdate={(id, up) => setNotes(p => p.map(n => n.id === id ? {...n, ...up} : n))} onEdit={handleEditNote} onKeyError={handleKeyError} theme={theme} serviceKeys={serviceKeys} />
                 </div>
               )) : (
                 <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20">

@@ -8,11 +8,12 @@ interface NoteCardProps {
   onUpdate: (id: string, updates: Partial<Note>) => void;
   onEdit: (note: Note) => void;
   onAiError?: () => void;
+  onKeyError?: () => void; // Added to notify parent when keys are invalid
   theme: ThemeColors;
   serviceKeys?: ServiceKeys;
 }
 
-const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, onAiError, theme, serviceKeys }) => {
+const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, onAiError, onKeyError, theme, serviceKeys }) => {
   const [isReformatting, setIsReformatting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -62,6 +63,10 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             const listsResponse = await fetch('https://www.googleapis.com/tasks/v1/users/@me/lists', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+            if (listsResponse.status === 401) {
+              if (onKeyError) onKeyError();
+              throw new Error('TOKEN_EXPIRED');
+            }
             if (!listsResponse.ok) throw new Error('LIST_FETCH_FAIL');
             const listsData = await listsResponse.json();
             let targetListId = listsData.items?.find((l: any) => l.title === LIST_TITLE)?.id;
@@ -95,9 +100,9 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
 
   const handleExportToCalendar = async () => {
     if (!note.eventDetails) return;
-    if (serviceKeys?.tasks) {
+    if (serviceKeys?.calendar) {
         setIsSyncing(true);
-        const token = serviceKeys.tasks.trim();
+        const token = serviceKeys.calendar.trim();
         try {
             const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
                 method: 'POST',
@@ -109,6 +114,10 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
                     end: { dateTime: note.eventDetails.end }
                 })
             });
+            if (response.status === 401) {
+              if (onKeyError) onKeyError();
+              throw new Error('TOKEN_EXPIRED');
+            }
             if (!response.ok) throw new Error("API_FAIL");
             setSyncStatus('success');
             setTimeout(() => setSyncStatus('idle'), 2000);

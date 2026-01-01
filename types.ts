@@ -38,6 +38,7 @@ export interface ServiceKeys {
   gemini?: string;
   clientId?: string;
   calendar?: string;
+  expiresAt?: number;
 }
 
 export type ModelTier = 'flash' | 'pro';

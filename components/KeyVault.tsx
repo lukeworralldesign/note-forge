@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ThemeColors, ServiceKeys } from '../types';
 
 interface KeyVaultProps {
@@ -11,6 +11,7 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
   const [keys, setKeys] = useState<ServiceKeys>({});
   const [isLinking, setIsLinking] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
+  const [tokenExpired, setTokenExpired] = useState(false);
   const tokenClient = useRef<any>(null);
 
   useEffect(() => {
@@ -27,9 +28,14 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
     const saved = localStorage.getItem('note_forge_service_keys');
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
+        const parsed = JSON.parse(saved) as ServiceKeys;
         setKeys(parsed);
         onKeysUpdated(parsed);
+        
+        // Check if token is expired on load
+        if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+          setTokenExpired(true);
+        }
       } catch (e) {
         console.error("Failed to load keys", e);
       }
@@ -43,7 +49,7 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
     localStorage.setItem('note_forge_service_keys', JSON.stringify(newKeys));
   };
 
-  const handleGoogleConnect = () => {
+  const handleGoogleConnect = useCallback((prompt: 'consent' | 'none' = 'consent') => {
     const google = (window as any).google;
     if (!google) return;
     if (!keys.clientId || keys.clientId.length < 10) {
@@ -59,45 +65,55 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
             callback: (response: any) => {
                 setIsLinking(false);
                 if (response.access_token) {
-                    const updated = { ...keys, tasks: response.access_token, calendar: response.access_token };
+                    const expiresIn = response.expires_in || 3600; // Default 1 hour
+                    const updated = { 
+                      ...keys, 
+                      tasks: response.access_token, 
+                      calendar: response.access_token,
+                      expiresAt: Date.now() + (expiresIn * 1000)
+                    };
                     setKeys(updated);
                     onKeysUpdated(updated);
+                    setTokenExpired(false);
                     localStorage.setItem('note_forge_service_keys', JSON.stringify(updated));
+                } else if (response.error === 'immediate_failed') {
+                    // Silent refresh failed, user needs to consent again
+                    setTokenExpired(true);
                 }
             }
         });
-        tokenClient.current.requestAccessToken({ prompt: 'consent' });
+        tokenClient.current.requestAccessToken({ prompt: prompt });
     } catch (err) {
         setIsLinking(false);
         console.error("Init Error:", err);
     }
-  };
+  }, [keys, onKeysUpdated]);
 
-  const isConnected = !!keys.tasks || !!keys.calendar;
+  const isConnected = (!!keys.tasks || !!keys.calendar) && !tokenExpired;
   const hasClientId = !!keys.clientId && keys.clientId.length > 20;
 
   return (
     <div className="w-full mt-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
-      <div className={`flex items-center gap-2 ${theme.surface} p-1.5 rounded-full border ${theme.surfaceBorder} shadow-sm group transition-all duration-300 focus-within:ring-1 ${theme.focusRing}`}>
+      <div className={`flex items-center gap-2 ${theme.surface} p-1.5 rounded-full border ${tokenExpired ? 'border-[#FFB4AB]' : theme.surfaceBorder} shadow-sm group transition-all duration-300 focus-within:ring-1 ${theme.focusRing}`}>
         <div className="flex-1 px-4">
             <input 
                 type="text" 
                 value={keys.clientId || ''} 
                 onChange={(e) => updateClientId(e.target.value)}
                 placeholder="Paste Client ID here..."
-                className="w-full bg-transparent border-none text-[11px] text-[#E3E2E6] focus:outline-none placeholder:text-[#8E9099] font-medium tracking-tight uppercase"
+                className={`w-full bg-transparent border-none text-[11px] font-medium tracking-tight uppercase focus:outline-none placeholder:text-[#8E9099] ${tokenExpired ? 'text-[#FFB4AB]' : 'text-[#E3E2E6]'}`}
             />
         </div>
         
         <div className="relative flex-shrink-0 mr-1">
             <button
-                onClick={handleGoogleConnect}
+                onClick={() => handleGoogleConnect('consent')}
                 disabled={!sdkReady || isLinking || !hasClientId}
                 className={`
                     w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-md active:scale-90 bg-white
                     ${(!hasClientId || isLinking) ? 'opacity-30 cursor-not-allowed grayscale' : 'hover:scale-105'}
                 `}
-                title={isConnected ? "Identity Active" : "Authorize Google Sync"}
+                title={tokenExpired ? "Session Expired - Reconnect" : (isConnected ? "Identity Active" : "Authorize Google Sync")}
             >
                 {isLinking ? (
                     <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
@@ -116,8 +132,22 @@ const KeyVault: React.FC<KeyVaultProps> = ({ theme, onKeysUpdated, compact = fal
                     <span className="material-symbols-rounded text-[10px] text-[#191A12] font-black">done</span>
                 </div>
             )}
+
+            {tokenExpired && !isLinking && (
+                <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#FFB4AB] rounded-full border border-[#601410] flex items-center justify-center animate-bounce duration-300 shadow-sm pointer-events-none">
+                    <span className="material-symbols-rounded text-[10px] text-[#601410] font-black">sync_problem</span>
+                </div>
+            )}
         </div>
       </div>
+      {tokenExpired && (
+        <div className="px-5 mt-2">
+          <p className="text-[9px] font-bold text-[#FFB4AB] uppercase tracking-widest flex items-center gap-1.5">
+            <span className="material-symbols-rounded text-[12px]">info</span>
+            Google Session Expired. Tap the icon to re-authenticate.
+          </p>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,4 @@
-
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Note, ThemeColors } from '../types';
 
 interface DataTransferProps {
@@ -11,10 +10,13 @@ interface DataTransferProps {
 
 const DataTransfer: React.FC<DataTransferProps> = ({ notes, onImport, theme, className = "" }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const handleExport = () => {
     if (notes.length === 0) return;
     
+    // Stringify includes all own properties of Note objects, 
+    // including AI intent, calendar details, and embeddings.
     const dataStr = JSON.stringify(notes, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -22,11 +24,14 @@ const DataTransfer: React.FC<DataTransferProps> = ({ notes, onImport, theme, cla
     const link = document.createElement('a');
     const timestamp = new Date().toISOString().split('T')[0];
     link.href = url;
-    link.download = `note-forge-backup-${timestamp}.json`;
+    link.download = `note-forge-v1-${timestamp}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    
+    setStatus('success');
+    setTimeout(() => setStatus('idle'), 2000);
   };
 
   const handleImportClick = () => {
@@ -44,13 +49,19 @@ const DataTransfer: React.FC<DataTransferProps> = ({ notes, onImport, theme, cla
         const imported = JSON.parse(content) as Note[];
         
         if (Array.isArray(imported)) {
+          // Validate basic structure; JSON.parse naturally preserves the intelligent routing fields.
           if (imported.length > 0 && (!imported[0].content || !imported[0].id)) {
             throw new Error("Invalid note format");
           }
+          
           onImport(imported);
+          setStatus('success');
+          setTimeout(() => setStatus('idle'), 2000);
         }
       } catch (err) {
         console.error("Import failed:", err);
+        setStatus('error');
+        setTimeout(() => setStatus('idle'), 3000);
         alert("Failed to import notes. Please ensure the file is a valid note-forge export.");
       }
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -59,13 +70,15 @@ const DataTransfer: React.FC<DataTransferProps> = ({ notes, onImport, theme, cla
   };
 
   return (
-    <div className={`flex items-center rounded-full border border-white/5 ${theme.surface} p-1 shadow-lg transition-colors duration-500 h-12 ${className}`}>
+    <div className={`flex items-center rounded-full border border-white/5 ${theme.surface} p-1 shadow-lg transition-all duration-500 h-12 ${className}`}>
       <button
         onClick={handleImportClick}
-        className={`flex-1 flex items-center justify-center gap-2 h-full rounded-full hover:bg-white/5 active:scale-95 transition-all text-[10px] font-black uppercase tracking-[0.2em] ${theme.primaryText}`}
+        className={`flex-1 flex items-center justify-center gap-2 h-full rounded-full hover:bg-white/5 active:scale-95 transition-all text-[10px] font-black uppercase tracking-[0.2em] ${status === 'success' ? 'text-[#C1CC94]' : status === 'error' ? 'text-[#FFB4AB]' : theme.primaryText}`}
       >
-        <span className="material-symbols-rounded text-lg">upload</span>
-        IMPORT
+        <span className="material-symbols-rounded text-lg">
+          {status === 'success' ? 'check_circle' : status === 'error' ? 'error' : 'upload'}
+        </span>
+        {status === 'success' ? 'DONE' : 'IMPORT'}
       </button>
       
       <div className="w-[1px] h-6 bg-white/10 mx-1"></div>

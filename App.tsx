@@ -116,10 +116,7 @@ const App: React.FC = () => {
         else if (showOverview) swipeLockedOn.current = 'overview';
         else swipeLockedOn.current = deltaX > 0 ? 'insights' : 'overview';
       } 
-      // VERTICAL PULL LOGIC: 
-      // 1. Must be scrolling DOWN (deltaY > 0)
-      // 2. Must be more vertical than horizontal
-      // 3. CRITICAL: Must be at the very top of the scrollable container
+      // VERTICAL PULL LOGIC
       else if (deltaY > 15 && absY > absX * 1.5 && currentScrollTop <= 2 && !showInsights && !showOverview) {
         setIsSwiping(true);
         swipeLockedOn.current = 'pull';
@@ -131,7 +128,6 @@ const App: React.FC = () => {
 
     if (isSwiping) {
       if (swipeLockedOn.current === 'pull') {
-        // Double check we are still at the top or it's a valid pull
         if (currentScrollTop > 5 && pullOffset === 0) {
             setIsSwiping(false);
             swipeLockedOn.current = null;
@@ -220,7 +216,12 @@ const App: React.FC = () => {
         await initLocalEmbedder(); 
         const db = await create({
           schema: {
-            content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' 
+            content: 'string', 
+            headline: 'string', 
+            category: 'string', 
+            tags: 'string[]', 
+            intent: 'string', // Added intent to schema for AI metadata persistence
+            embedding: 'vector[384]' 
           }
         });
         setOramaDb(db);
@@ -228,7 +229,7 @@ const App: React.FC = () => {
         console.error("Critical Engine Init Failure:", e);
         try {
             const fallbackDb = await create({
-                schema: { content: 'string', headline: 'string', category: 'string', tags: 'string[]' }
+                schema: { content: 'string', headline: 'string', category: 'string', tags: 'string[]', intent: 'string' }
             });
             setOramaDb(fallbackDb);
         } catch (innerErr) {
@@ -245,26 +246,25 @@ const App: React.FC = () => {
     if (!oramaDb || isReprocessingAI) return;
     const syncNotes = async () => {
       for (const note of notes) {
+        const commonData = {
+          id: note.id,
+          content: note.content,
+          headline: note.headline,
+          category: note.category,
+          tags: note.tags,
+          intent: note.intent || 'reference'
+        };
+        
         if (note.embedding && note.embedding.length === 384) {
           try {
             await insert(oramaDb, {
-              id: note.id,
-              content: note.content,
-              headline: note.headline,
-              category: note.category,
-              tags: note.tags,
+              ...commonData,
               embedding: note.embedding
             });
           } catch (e) { }
         } else {
           try {
-            await insert(oramaDb, {
-                id: note.id,
-                content: note.content,
-                headline: note.headline,
-                category: note.category,
-                tags: note.tags
-            });
+            await insert(oramaDb, commonData);
           } catch (e) { }
         }
       }
@@ -296,7 +296,12 @@ const App: React.FC = () => {
       try {
         const aiResult = await processNoteWithAI(content, ragEnabled);
         const embedding = await getLocalEmbedding(content);
-        setNotes(prev => prev.map(n => n.id === targetId ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
+        setNotes(prev => prev.map(n => n.id === targetId ? { 
+          ...n, 
+          ...aiResult, 
+          embedding: embedding || n.embedding, 
+          aiStatus: 'completed' 
+        } : n));
         return aiResult;
       } catch (e) {
         setNotes(prev => prev.map(n => n.id === targetId ? { ...n, aiStatus: 'error' } : n));
@@ -310,7 +315,12 @@ const App: React.FC = () => {
       try {
         const aiResult = await processNoteWithAI(content, ragEnabled);
         const embedding = await getLocalEmbedding(content);
-        setNotes(current => current.map(n => n.id === newId ? { ...n, aiStatus: 'completed', ...aiResult, embedding: embedding || undefined } : n));
+        setNotes(current => current.map(n => n.id === newId ? { 
+          ...n, 
+          aiStatus: 'completed', 
+          ...aiResult, 
+          embedding: embedding || undefined 
+        } : n));
         return aiResult;
       } catch {
         setGeminiError(true);
@@ -326,7 +336,6 @@ const App: React.FC = () => {
     setEditRagEnabled(note.ragEnabled);
     setShowOverview(false);
     setShowInsights(false);
-    
     if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -346,7 +355,12 @@ const App: React.FC = () => {
           try {
             const aiResult = await processNoteWithAI(note.content, note.ragEnabled);
             const embedding = await getLocalEmbedding(note.content);
-            setNotes(prev => prev.map(n => n.id === note.id ? { ...n, ...aiResult, embedding: embedding || n.embedding, aiStatus: 'completed' } : n));
+            setNotes(prev => prev.map(n => n.id === note.id ? { 
+              ...n, 
+              ...aiResult, 
+              embedding: embedding || n.embedding, 
+              aiStatus: 'completed' 
+            } : n));
           } catch (e) {
             setNotes(prev => prev.map(n => n.id === note.id ? { ...n, aiStatus: 'error' } : n));
           }
@@ -355,54 +369,6 @@ const App: React.FC = () => {
       processPending();
     }
   }, [notes, isReprocessingAI]);
-
-  useEffect(() => {
-    const parsedUrl = new URL(window.location.href);
-    const sharedTitle = parsedUrl.searchParams.get('title');
-    const sharedText = parsedUrl.searchParams.get('text');
-    const sharedUrl = parsedUrl.searchParams.get('url');
-
-    if (sharedTitle || sharedText || sharedUrl) {
-      setIsShareLaunch(true);
-      setShareStatus('active');
-      
-      let combinedContent = "";
-      if (sharedTitle) combinedContent += `${sharedTitle}\n`;
-      if (sharedText) combinedContent += `${sharedText}\n`;
-      if (sharedUrl) combinedContent += `Source: ${sharedUrl}`;
-      
-      const finalContent = combinedContent.trim();
-      if (finalContent) {
-        const newId = crypto.randomUUID();
-        const newNote: Note = {
-          id: newId, 
-          content: finalContent, 
-          timestamp: Date.now(), 
-          aiStatus: 'idle', 
-          category: 'Captured', 
-          headline: sharedTitle || 'Incoming Resource', 
-          tags: ['Shared'],
-          ragEnabled: true 
-        };
-
-        setNotes(prev => [newNote, ...prev]);
-        setTimeout(() => {
-          setShareStatus('success');
-          setTimeout(() => {
-            setShareStatus('closing');
-            window.history.replaceState({}, document.title, window.location.pathname);
-            setTimeout(() => {
-              window.close();
-              setIsShareLaunch(false);
-              setShareStatus('idle');
-            }, 300);
-          }, 400);
-        }, 300);
-      } else {
-        setIsShareLaunch(false);
-      }
-    }
-  }, []);
 
   const handleRefreshMetadata = async () => {
     if (isReprocessingAI || notes.length === 0) return;
@@ -419,7 +385,9 @@ const App: React.FC = () => {
       }
       setNotes(updatedNotes);
       if (oramaDb) {
-        const db = await create({ schema: { content: 'string', headline: 'string', category: 'string', tags: 'string[]', embedding: 'vector[384]' } });
+        const db = await create({ 
+          schema: { content: 'string', headline: 'string', category: 'string', tags: 'string[]', intent: 'string', embedding: 'vector[384]' } 
+        });
         setOramaDb(db);
       }
     } catch (err) { } finally {
@@ -548,7 +516,6 @@ const App: React.FC = () => {
         onTouchMove={handleTouchMove} 
         onTouchEnd={handleTouchEnd}
     >
-      
       <div 
         className={`fixed top-0 left-0 right-0 z-[1000] flex justify-center pointer-events-none transition-opacity duration-300 ${pullOffset > 10 || isRefreshing ? 'opacity-100' : 'opacity-0'}`}
         style={{ transform: `translateY(${Math.min(pullOffset - 50, 60)}px)` }}
@@ -560,25 +527,6 @@ const App: React.FC = () => {
            <FidgetStar sizeClass="w-12 h-12" colorClass={isRefreshing ? 'text-[#FFDAD6]' : theme.primaryText} />
         </div>
       </div>
-
-      {isShareLaunch && (
-        <div className={`fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[40px] transition-all duration-700 ${shareStatus === 'closing' ? 'opacity-0 scale-110 pointer-events-none' : 'opacity-100 scale-100'}`}>
-          <div className="flex flex-col items-center gap-8 animate-in zoom-in duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]">
-             <div className="relative">
-                <FidgetStar sizeClass="w-36 h-36" colorClass={theme.primaryText} />
-                <div className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${shareStatus === 'success' ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
-                    <span className="material-symbols-rounded text-6xl text-white drop-shadow-lg">done_all</span>
-                </div>
-             </div>
-             <div className={`text-center transition-all duration-500 ${shareStatus === 'success' ? 'opacity-100 translate-y-0' : 'opacity-40 translate-y-4'}`}>
-                <p className="text-white text-xs font-black uppercase tracking-[0.4em] mb-2">{shareStatus === 'success' ? 'Captured' : 'Forging Knowledge'}</p>
-                <div className="h-1 w-24 bg-white/10 mx-auto rounded-full overflow-hidden">
-                    <div className={`h-full bg-white transition-all duration-500 ${shareStatus === 'success' ? 'w-full' : 'w-1/2'}`}></div>
-                </div>
-             </div>
-          </div>
-        </div>
-      )}
 
       <ActivityInsights 
         notes={notes} 

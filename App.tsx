@@ -61,6 +61,7 @@ const App: React.FC = () => {
   const [refreshProgress, setRefreshProgress] = useState<{ current: number, total: number } | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
 
+  // Share Target State
   const [isShareLaunch, setIsShareLaunch] = useState(false);
   const [shareStatus, setShareStatus] = useState<'active' | 'success' | 'closing' | 'idle'>('idle');
 
@@ -109,14 +110,12 @@ const App: React.FC = () => {
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
       
-      // Horizontal swipe locks
       if (absX > 15 && absX > absY * 1.5) {
         setIsSwiping(true);
         if (showInsights) swipeLockedOn.current = 'insights';
         else if (showOverview) swipeLockedOn.current = 'overview';
         else swipeLockedOn.current = deltaX > 0 ? 'insights' : 'overview';
       } 
-      // VERTICAL PULL LOGIC
       else if (deltaY > 15 && absY > absX * 1.5 && currentScrollTop <= 2 && !showInsights && !showOverview) {
         setIsSwiping(true);
         swipeLockedOn.current = 'pull';
@@ -133,7 +132,6 @@ const App: React.FC = () => {
             swipeLockedOn.current = null;
             return;
         }
-        
         const maxStretch = screenHeight.current * 0.25;
         const pullDistance = Math.max(0, deltaY);
         const resistance = 0.4;
@@ -220,7 +218,7 @@ const App: React.FC = () => {
             headline: 'string', 
             category: 'string', 
             tags: 'string[]', 
-            intent: 'string', // Added intent to schema for AI metadata persistence
+            intent: 'string',
             embedding: 'vector[384]' 
           }
         });
@@ -309,7 +307,7 @@ const App: React.FC = () => {
     } else {
       const newId = crypto.randomUUID();
       const newNote: Note = {
-        id: newId, content, ragEnabled, timestamp: Date.now(), aiStatus: 'processing', category: '...', headline: 'Analyzing...', tags: []
+        id: newId, content, ragEnabled, timestamp: Date.now(), aiStatus: 'processing', category: 'Thoughts', headline: 'Analyzing...', tags: []
       };
       setNotes(prev => [newNote, ...prev]);
       try {
@@ -330,6 +328,90 @@ const App: React.FC = () => {
     }
   }, [editingNoteId]);
 
+  // ULTRA-FAST FIRE-AND-FORGET SHARE TARGET
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const title = params.get('title');
+    const text = params.get('text');
+    const url = params.get('url');
+
+    if (title || text || url) {
+      setIsShareLaunch(true);
+      setShareStatus('active');
+      
+      const contentParts = [];
+      if (title) contentParts.push(title);
+      if (text) contentParts.push(text);
+      if (url) contentParts.push(url);
+      const combinedContent = contentParts.join('\n\n');
+      
+      // 1. Commit note to Local Storage state immediately with 'idle' status
+      const newId = crypto.randomUUID();
+      const shareNote: Note = {
+        id: newId, 
+        content: combinedContent, 
+        ragEnabled: false, 
+        timestamp: Date.now(), 
+        aiStatus: 'idle', 
+        category: 'Thoughts', 
+        headline: 'Shared Content', 
+        tags: []
+      };
+
+      setNotes(prev => {
+        const updated = [shareNote, ...prev];
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 2. UI Finish Sequence: Show Fidget Star briefly then close
+      setTimeout(() => {
+        setShareStatus('success');
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        setTimeout(() => {
+          setShareStatus('closing');
+          // Try to close. Many mobile browsers will allow this for share intents.
+          try { window.close(); } catch (e) {}
+          // Fallback if window.close doesn't work: just hide the overlay
+          setTimeout(() => setIsShareLaunch(false), 500);
+        }, 500);
+      }, 1000);
+    }
+  }, []);
+
+  // AUTOMATIC BACKGROUND FORGING
+  useEffect(() => {
+    // Only process background tasks if we aren't currently in a "Share Launch" window
+    // and if we have notes marked as 'idle'.
+    if (isShareLaunch) return;
+
+    const idleNotes = notes.filter(n => n.aiStatus === 'idle');
+    if (idleNotes.length > 0 && !isReprocessingAI) {
+      const reprocessSharedContent = async () => {
+        for (const note of idleNotes) {
+          // Mark as processing visually
+          setNotes(prev => prev.map(n => n.id === note.id ? { ...n, aiStatus: 'processing', headline: 'Forging Shared Content...' } : n));
+          
+          try {
+            const aiResult = await processNoteWithAI(note.content, note.ragEnabled);
+            const embedding = await getLocalEmbedding(note.content);
+            setNotes(prev => prev.map(n => n.id === note.id ? { 
+              ...n, 
+              ...aiResult, 
+              embedding: embedding || n.embedding, 
+              aiStatus: 'completed' 
+            } : n));
+          } catch (e) {
+            console.error("Background forging failed for note", note.id, e);
+            setNotes(prev => prev.map(n => n.id === note.id ? { ...n, aiStatus: 'error' } : n));
+          }
+        }
+      };
+      reprocessSharedContent();
+    }
+  }, [notes, isShareLaunch, isReprocessingAI]);
+
   const handleEditNote = (note: Note) => {
     setEditingNoteId(note.id);
     setEditContent(note.content);
@@ -346,29 +428,6 @@ const App: React.FC = () => {
     setEditContent('');
     setEditRagEnabled(false);
   };
-
-  useEffect(() => {
-    const pending = notes.filter(n => n.aiStatus === 'idle');
-    if (pending.length > 0 && !isReprocessingAI) {
-      const processPending = async () => {
-        for (const note of pending) {
-          try {
-            const aiResult = await processNoteWithAI(note.content, note.ragEnabled);
-            const embedding = await getLocalEmbedding(note.content);
-            setNotes(prev => prev.map(n => n.id === note.id ? { 
-              ...n, 
-              ...aiResult, 
-              embedding: embedding || n.embedding, 
-              aiStatus: 'completed' 
-            } : n));
-          } catch (e) {
-            setNotes(prev => prev.map(n => n.id === note.id ? { ...n, aiStatus: 'error' } : n));
-          }
-        }
-      };
-      processPending();
-    }
-  }, [notes, isReprocessingAI]);
 
   const handleRefreshMetadata = async () => {
     if (isReprocessingAI || notes.length === 0) return;
@@ -410,7 +469,6 @@ const App: React.FC = () => {
   };
 
   const handleKeyError = () => {
-    // If a token is 401'd, clear the stale keys in local state
     const updatedKeys = { ...serviceKeys, tasks: undefined, calendar: undefined, expiresAt: undefined };
     setServiceKeys(updatedKeys);
     localStorage.setItem('note_forge_service_keys', JSON.stringify(updatedKeys));
@@ -658,6 +716,25 @@ const App: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {isShareLaunch && (
+        <div className={`fixed inset-0 z-[20000] flex flex-col items-center justify-center p-8 transition-all duration-700 ${shareStatus === 'closing' ? 'opacity-0 scale-110 pointer-events-none' : 'opacity-100 scale-100'}`} style={{ backgroundColor: theme.bg }}>
+            <div className="flex flex-col items-center max-w-sm w-full text-center">
+                <FidgetStar sizeClass="w-32 h-32 mb-12" colorClass={shareStatus === 'success' ? '#C1CC94' : theme.primaryText} />
+                <h2 className="text-3xl font-bold text-[#E3E2E6] mb-4 tracking-tight">
+                  {shareStatus === 'active' ? 'Neural Forging' : 'Forging Complete'}
+                </h2>
+                <p className={`${theme.subtleText} text-sm leading-relaxed opacity-70`}>
+                  {shareStatus === 'active' 
+                    ? 'Capturing shared content into your intelligent collections...' 
+                    : 'Collection updated. Background engines initialized.'}
+                </p>
+                <div className="mt-10 flex items-center gap-2">
+                    <div className={`h-1 rounded-full transition-all duration-700 ${shareStatus === 'success' ? 'w-24 bg-[#C1CC94]' : 'w-12 bg-white/20 animate-pulse'}`}></div>
+                </div>
+            </div>
+        </div>
+      )}
 
       {noteToDelete && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl animate-in fade-in duration-300 overflow-hidden">

@@ -197,11 +197,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
                     <span>Context</span>
                 </div>
             )}
-            {isProcessed && note.intent && (
-              <span className="px-2 py-1 rounded-lg bg-white/5 text-[8px] font-black uppercase tracking-widest opacity-40 text-white">
-                {note.intent}
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => onEdit(note)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#3F4042] text-[#8E9099]"><span className="material-symbols-rounded text-[18px]">edit</span></button>
@@ -223,12 +218,15 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
                 <div className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none transition-opacity duration-300" style={{ background: `linear-gradient(transparent, ${cardBg})` }} />
             )}
             {isLong && (
-                <div className={`mt-2 text-[9px] font-black uppercase tracking-widest ${theme.primaryText} opacity-0 group-hover/content:opacity-40 transition-opacity`}>
-                    {isExpanded ? 'Click to collapse' : 'Click to read more'}
+                <div className={`mt-1 flex justify-center ${theme.primaryText} opacity-0 group-hover/content:opacity-60 transition-all duration-300`}>
+                    <span className="material-symbols-rounded text-xl leading-none">
+                        {isExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+                    </span>
                 </div>
             )}
         </div>
 
+        {/* COMPACT TAGS INTERFACE */}
         <div className="flex flex-wrap items-center gap-2 mb-6">
             <button 
                 onClick={(e) => { e.stopPropagation(); setShowTags(!showTags); }}

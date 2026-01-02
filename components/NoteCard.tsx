@@ -8,7 +8,7 @@ interface NoteCardProps {
   onUpdate: (id: string, updates: Partial<Note>) => void;
   onEdit: (note: Note) => void;
   onAiError?: () => void;
-  onKeyError?: () => void; // Added to notify parent when keys are invalid
+  onKeyError?: () => void;
   theme: ThemeColors;
   serviceKeys?: ServiceKeys;
 }
@@ -148,6 +148,29 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     return { previewText, isLong };
   }, [note.content]);
 
+  // Helper to detect and render links
+  const renderContentWithLinks = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, i) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a 
+            key={i} 
+            href={part} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className={`${theme.primaryText} underline underline-offset-4 decoration-2 hover:brightness-125 transition-all`}
+            onClick={(e) => e.stopPropagation()} // Prevent card expansion when clicking a link
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
   const style = getCategoryStyle(note.category);
   const cardBg = theme.key === 'pro' ? '#1E2228' : '#22241B';
 
@@ -188,9 +211,9 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             onClick={() => isLong && setIsExpanded(!isExpanded)}
             className={`relative group/content cursor-pointer mb-6 transition-all duration-500 ease-in-out ${isExpanded ? 'max-h-[1000px]' : 'max-h-32'}`}
         >
-            <p className={`${theme.subtleText} text-base font-normal leading-relaxed whitespace-pre-wrap ${isReformatting ? 'opacity-50' : ''}`}>
-                {isExpanded ? note.content : previewText}
-            </p>
+            <div className={`${theme.subtleText} text-base font-normal leading-relaxed whitespace-pre-wrap ${isReformatting ? 'opacity-50' : ''}`}>
+                {isExpanded ? renderContentWithLinks(note.content) : renderContentWithLinks(previewText)}
+            </div>
             {isLong && !isExpanded && (
                 <div className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none transition-opacity duration-300" style={{ background: `linear-gradient(transparent, ${cardBg})` }} />
             )}

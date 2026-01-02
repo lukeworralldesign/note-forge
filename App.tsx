@@ -707,7 +707,6 @@ const App: React.FC = () => {
                   </div>
                   <h3 className="text-base font-bold text-[#E3E2E6] leading-snug line-clamp-4 tracking-tight relative z-10" style={{ fontVariationSettings: '"wght" 600' }}>{note.headline}</h3>
                   <div className="mt-auto flex justify-between items-center relative z-10">
-                     <div className="flex flex-wrap gap-1">{note.tags.slice(0, 1).map((t, i) => (<span key={i} className={`text-[8px] font-black tracking-wider uppercase ${theme.primaryText}`}>#{t}</span>))}</div>
                      <span className="text-[9px] font-bold uppercase tracking-tighter opacity-40 text-[#E3E2E6]">{new Date(note.timestamp).toLocaleDateString()}</span>
                   </div>
                 </div>

@@ -19,6 +19,7 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showTags, setShowTags] = useState(false);
 
   useEffect(() => {
     if (!showDeleteConfirm) return;
@@ -148,7 +149,6 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
     return { previewText, isLong };
   }, [note.content]);
 
-  // Helper to detect and render links
   const renderContentWithLinks = (text: string) => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
@@ -160,8 +160,8 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             href={part} 
             target="_blank" 
             rel="noopener noreferrer" 
-            className={`${theme.primaryText} underline underline-offset-4 decoration-2 hover:brightness-125 transition-all`}
-            onClick={(e) => e.stopPropagation()} // Prevent card expansion when clicking a link
+            className="text-white opacity-30 underline underline-offset-4 decoration-1 hover:opacity-100 transition-all duration-300"
+            onClick={(e) => e.stopPropagation()} 
           >
             {part}
           </a>
@@ -175,7 +175,12 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
   const cardBg = theme.key === 'pro' ? '#1E2228' : '#22241B';
 
   const isProcessed = note.aiStatus === 'completed';
-  const showRecommended = (intent: string) => isProcessed && note.intent === intent;
+  const intent = note.intent || 'reference';
+  
+  // Dynamic Export Bar logic
+  const isTaskPrimary = intent === 'task';
+  const isEphemeralPrimary = intent === 'ephemeral';
+  const isReferencePrimary = intent === 'reference' || (!isTaskPrimary && !isEphemeralPrimary);
 
   return (
     <div className="masonry-item group relative">
@@ -224,14 +229,28 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             )}
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-6">
-            {note.tags.map((tag, idx) => (
-            <span key={idx} className={`${theme.primaryText} text-xs font-medium opacity-80`}>#{tag}</span>
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+            <button 
+                onClick={(e) => { e.stopPropagation(); setShowTags(!showTags); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-white/5 ${theme.surface} hover:bg-white/10 transition-all active:scale-95 shadow-sm group/tagbtn`}
+                title="View Tags"
+            >
+                <span className={`material-symbols-rounded text-sm transition-transform duration-300 ${theme.primaryText} ${showTags ? 'rotate-12 scale-110' : 'group-hover/tagbtn:rotate-12'}`}>local_offer</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-white/40">{note.tags.length}</span>
+            </button>
+            
+            {showTags && note.tags.map((tag, idx) => (
+                <span 
+                    key={idx} 
+                    className={`${theme.primaryText} text-[10px] font-black uppercase tracking-widest animate-in fade-in slide-in-from-left-2 duration-300`}
+                    style={{ animationDelay: `${idx * 50}ms` }}
+                >
+                    #{tag}
+                </span>
             ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Calendar Sync - Circular */}
           {note.calendarSync && (
             <button 
               onClick={handleExportToCalendar}
@@ -242,57 +261,49 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onDelete, onUpdate, onEdit, o
             </button>
           )}
 
-          {/* Tasks - Circular */}
+          {/* Tasks Export */}
           <button 
             onClick={handleExportToTasks} 
             disabled={isSyncing}
-            className={`w-12 h-12 flex-shrink-0 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 relative ${syncStatus === 'success' && !isSyncing ? 'bg-[#C1CC94] text-[#191A12]' : syncStatus === 'error' ? 'bg-[#FFB4AB] text-[#601410]' : 'bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA]'} ${showRecommended('task') ? 'ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#3F7DE3]' : ''}`}
+            className={`transition-all duration-500 flex items-center justify-center shadow-lg active:scale-90 relative 
+              ${isTaskPrimary ? 'flex-1 min-w-[100px] h-12 rounded-full px-5 gap-2 ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#3F7DE3]' : 'w-12 h-12 flex-shrink-0 rounded-full'}
+              ${syncStatus === 'success' && !isSyncing ? 'bg-[#C1CC94] text-[#191A12]' : syncStatus === 'error' ? 'bg-[#FFB4AB] text-[#601410]' : 'bg-[#D3E3FD] text-[#041E49] hover:bg-[#A8C7FA]'}
+            `}
             title="Send to Tasks"
           >
             <span className={`material-symbols-rounded text-2xl ${isSyncing ? 'animate-spin' : ''}`}>{isSyncing ? 'sync' : (syncStatus === 'error' ? 'error' : 'task_alt')}</span>
-            {showRecommended('task') && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#3F7DE3] rounded-full border border-black shadow-sm" />}
+            {isTaskPrimary && <span className="text-[10px] font-black uppercase tracking-widest">Tasks</span>}
+            {isTaskPrimary && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#3F7DE3] rounded-full border border-black shadow-sm" />}
           </button>
           
-          {/* Keep - Pill */}
+          {/* Keep Export */}
           <button 
             onClick={handleExportToKeep}
-            className={`flex-1 min-w-[80px] h-12 rounded-full transition-all border border-[#444746] ${theme.surface} flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 active:scale-95 relative ${showRecommended('ephemeral') ? 'ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#D9C559]' : ''}`}
+            className={`transition-all duration-500 border border-[#444746] ${theme.surface} flex items-center justify-center shadow-sm hover:bg-white/5 active:scale-95 relative
+              ${isEphemeralPrimary ? 'flex-1 min-w-[80px] h-12 rounded-full px-5 gap-2 ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#D9C559]' : 'w-12 h-12 flex-shrink-0 rounded-full'}
+            `}
             title="Send to Keep"
           >
-            <span 
-              className="material-symbols-rounded text-xl" 
-              style={{ color: showRecommended('ephemeral') ? '#D9C559' : undefined }}
-            >
+            <span className="material-symbols-rounded text-xl" style={{ color: isEphemeralPrimary ? '#D9C559' : undefined }}>
                 {syncStatus === 'success' ? 'done' : 'share'}
             </span>
-            <span 
-              className="text-[10px] font-black uppercase tracking-widest"
-              style={{ color: showRecommended('ephemeral') ? '#D9C559' : undefined }}
-            >
-              Keep
-            </span>
-            {showRecommended('ephemeral') && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#D9C559] rounded-full border border-black shadow-sm" />}
+            {isEphemeralPrimary && <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#D9C559' }}>Keep</span>}
+            {isEphemeralPrimary && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#D9C559] rounded-full border border-black shadow-sm" />}
           </button>
           
-          {/* Obsidian - Pill */}
+          {/* Obsidian Export */}
           <button 
             onClick={handleExportToObsidian} 
-            className={`flex-1 min-w-[100px] h-12 rounded-full border border-[#444746] ${theme.surface} flex items-center justify-center gap-2 shadow-sm hover:bg-white/5 transition-colors relative ${showRecommended('reference') ? 'ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#D0BCFF]' : ''}`}
+            className={`transition-all duration-500 border border-[#444746] ${theme.surface} flex items-center justify-center shadow-sm hover:bg-white/5 relative
+              ${isReferencePrimary ? 'flex-1 min-w-[100px] h-12 rounded-full px-5 gap-2 ring-2 ring-offset-2 ring-offset-[#22241B] ring-[#D0BCFF]' : 'w-12 h-12 flex-shrink-0 rounded-full'}
+            `}
             title="Send to Obsidian"
           >
-            <span 
-              className="material-symbols-rounded text-xl"
-              style={{ color: showRecommended('reference') ? '#D0BCFF' : undefined }}
-            >
+            <span className="material-symbols-rounded text-xl" style={{ color: isReferencePrimary ? '#D0BCFF' : undefined }}>
               diamond
             </span>
-            <span 
-              className="text-[10px] font-black uppercase tracking-widest"
-              style={{ color: showRecommended('reference') ? '#D0BCFF' : undefined }}
-            >
-              Obsidian
-            </span>
-            {showRecommended('reference') && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#D0BCFF] rounded-full border border-black shadow-sm" />}
+            {isReferencePrimary && <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#D0BCFF' }}>Obsidian</span>}
+            {isReferencePrimary && <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#D0BCFF] rounded-full border border-black shadow-sm" />}
           </button>
         </div>
 

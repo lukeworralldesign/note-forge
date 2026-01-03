@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Note, ThemeColors, getCategoryStyle } from '../types';
 
 interface ReveriesProps {
@@ -14,6 +14,35 @@ interface ReveriesProps {
   transform: string;
 }
 
+/**
+ * Custom Dice Icon component that renders standard dot patterns on a 3x3 grid.
+ */
+const DiceIcon: React.FC<{ value: number; color: string; className?: string }> = ({ value, color, className = "" }) => {
+  // Mapping values to grid cell indexes (0-8)
+  const dotMap: Record<number, number[]> = {
+    1: [4],
+    2: [2, 6],
+    3: [2, 4, 6],
+    4: [0, 2, 6, 8],
+    5: [0, 2, 4, 6, 8],
+    6: [0, 2, 3, 5, 6, 8],
+  };
+
+  const activeDots = dotMap[value] || [];
+
+  return (
+    <div className={`grid grid-cols-3 grid-rows-3 gap-0.5 w-5 h-5 p-0.5 rounded-[4px] border-[1.5px] ${className}`} style={{ borderColor: color }}>
+      {[...Array(9)].map((_, i) => (
+        <div 
+          key={i} 
+          className={`w-1 h-1 rounded-full transition-opacity duration-150 ${activeDots.includes(i) ? 'opacity-100' : 'opacity-0'}`} 
+          style={{ backgroundColor: color }}
+        />
+      ))}
+    </div>
+  );
+};
+
 const Reveries: React.FC<ReveriesProps> = ({ 
   notes, 
   theme, 
@@ -28,6 +57,8 @@ const Reveries: React.FC<ReveriesProps> = ({
 }) => {
   const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentDiceValue, setCurrentDiceValue] = useState(5);
+  const rollIntervalRef = useRef<number | null>(null);
 
   const pickRandomNotes = useCallback(() => {
     if (notes.length === 0) {
@@ -38,7 +69,7 @@ const Reveries: React.FC<ReveriesProps> = ({
     setSelectedNotes(shuffled.slice(0, 3));
   }, [notes]);
 
-  // Handle initial pick or refresh
+  // Handle initial pick
   useEffect(() => {
     if (isOpen && selectedNotes.length === 0 && notes.length > 0) {
       pickRandomNotes();
@@ -46,12 +77,33 @@ const Reveries: React.FC<ReveriesProps> = ({
   }, [isOpen, notes.length, pickRandomNotes, selectedNotes.length]);
 
   const handleRefresh = () => {
+    if (isRefreshing) return;
     setIsRefreshing(true);
+
+    // Rapidly cycle through numeric values to simulate a high-speed roll
+    let rolls = 0;
+    const maxRolls = 10;
+    rollIntervalRef.current = window.setInterval(() => {
+      setCurrentDiceValue(Math.floor(Math.random() * 6) + 1);
+      rolls++;
+      if (rolls >= maxRolls) {
+        if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
+      }
+    }, 60);
+
     setTimeout(() => {
       pickRandomNotes();
       setIsRefreshing(false);
-    }, 400); // Shuffling feel
+      // Final settle
+      setCurrentDiceValue(Math.floor(Math.random() * 6) + 1);
+    }, 600); 
   };
+
+  useEffect(() => {
+    return () => {
+      if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
+    };
+  }, []);
 
   return (
     <div 
@@ -62,6 +114,21 @@ const Reveries: React.FC<ReveriesProps> = ({
         visibility: (isOpen || isSwiping) ? 'visible' : 'hidden'
       }}
     >
+      <style>
+        {`
+          @keyframes dice-roll-tactile {
+            0% { transform: rotate(0deg) scale(1) translate(0, 0); }
+            10% { transform: rotate(-25deg) scale(1.4) translate(-4px, -14px); }
+            30% { transform: rotate(140deg) scale(0.8) translate(6px, 8px); }
+            50% { transform: rotate(220deg) scale(1.2) translate(-3px, -5px); }
+            75% { transform: rotate(320deg) scale(0.9) translate(3px, 3px); }
+            100% { transform: rotate(360deg) scale(1) translate(0, 0); }
+          }
+          .animate-dice-roll {
+            animation: dice-roll-tactile 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+          }
+        `}
+      </style>
       <div className="max-w-5xl mx-auto px-5 w-full min-h-full flex flex-col pointer-events-auto pt-safe pb-safe">
         <div className="pt-10 pb-10 flex items-center justify-between flex-shrink-0">
           <div className="flex flex-col">
@@ -79,10 +146,16 @@ const Reveries: React.FC<ReveriesProps> = ({
              <button 
                 onClick={handleRefresh}
                 disabled={notes.length === 0 || isRefreshing}
-                className={`w-12 h-12 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-xl active:scale-90 border border-white/10 hover:bg-white/10 transition-all ${isRefreshing ? 'animate-spin' : ''}`}
+                className={`w-12 h-12 rounded-full ${theme.surface} flex items-center justify-center text-[#E3E2E6] shadow-xl active:scale-90 border border-white/10 hover:bg-white/10 transition-all overflow-hidden`}
                 title="Shuffle Reveries"
               >
-                <span className="material-symbols-rounded text-2xl">casino</span>
+                <div className={`${isRefreshing ? 'animate-dice-roll' : ''}`}>
+                  <DiceIcon 
+                    value={currentDiceValue} 
+                    color={isRefreshing ? '#C1CC94' : 'rgba(255,255,255,0.6)'} 
+                    className="transition-colors duration-300"
+                  />
+                </div>
               </button>
               <button 
                 onClick={onClose} 
@@ -99,10 +172,10 @@ const Reveries: React.FC<ReveriesProps> = ({
                     const style = getCategoryStyle(note.category);
                     return (
                         <div 
-                            key={note.id} 
+                            key={`${note.id}-${isRefreshing}`} 
                             onClick={() => onNoteClick(note.id)}
                             className={`group relative ${theme.surface} p-8 rounded-[2rem] border border-white/5 cursor-pointer hover:border-white/20 transition-all shadow-2xl animate-in slide-in-from-left-8 fade-in duration-500`}
-                            style={{ animationDelay: `${index * 150}ms` }}
+                            style={{ animationDelay: `${index * 100}ms` }}
                         >
                             <div className="flex items-center gap-3 mb-4">
                                 <span className="px-2.5 py-1 rounded-lg text-[9px] font-black tracking-widest uppercase shadow-sm" style={{ backgroundColor: style.bg, color: style.text }}>

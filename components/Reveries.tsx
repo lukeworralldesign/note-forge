@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Note, ThemeColors, getCategoryStyle } from '../types';
+import DataTransfer from './DataTransfer';
 
 interface ReveriesProps {
   notes: Note[];
@@ -9,6 +10,7 @@ interface ReveriesProps {
   swipeOffset: number;
   isSwiping: boolean;
   onNoteClick: (id: string) => void;
+  onImport: (importedNotes: Note[]) => void;
   getFocusModeOverlayColor: (hex: string, alpha: number) => string;
   backdropOpacity: number;
   transform: string;
@@ -51,6 +53,7 @@ const Reveries: React.FC<ReveriesProps> = ({
   swipeOffset, 
   isSwiping,
   onNoteClick,
+  onImport,
   getFocusModeOverlayColor,
   backdropOpacity,
   transform
@@ -195,10 +198,6 @@ const Reveries: React.FC<ReveriesProps> = ({
                                 <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${theme.primaryText} group-hover:opacity-100 opacity-40 transition-opacity`}>Deep Recall</span>
                                 <span className={`material-symbols-rounded text-lg ${theme.primaryText} group-hover:translate-x-1 transition-transform opacity-40 group-hover:opacity-100`}>arrow_forward</span>
                             </div>
-                            
-                            <div className="absolute top-0 right-0 p-8 opacity-0 group-hover:opacity-10 transition-opacity">
-                                <span className="material-symbols-rounded text-6xl">psychology</span>
-                            </div>
                         </div>
                     );
                 })
@@ -213,7 +212,12 @@ const Reveries: React.FC<ReveriesProps> = ({
             )}
             
             {notes.length > 0 && (
-                 <div className="mt-4 flex justify-center">
+                 <div className="mt-8 flex flex-col items-center gap-8">
+                    <div className="flex flex-col items-center gap-4 w-full">
+                        <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme.subtleText} opacity-40`}>Transfer Hub</span>
+                        <DataTransfer notes={notes} onImport={onImport} theme={theme} className="max-w-md w-full" />
+                    </div>
+
                     <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] max-w-xs text-center leading-relaxed">
                         Reveries resurface random thoughts from your neural collection to spark new connections.
                     </p>

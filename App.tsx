@@ -601,6 +601,7 @@ const App: React.FC = () => {
         isSwiping={isSwiping && swipeLockedOn.current === 'reveries'}
         swipeOffset={swipeOffset}
         onNoteClick={scrollToNote}
+        onImport={handleImportNotes}
         getFocusModeOverlayColor={getFocusModeOverlayColor}
         backdropOpacity={getBackdropOpacity()}
         transform={getReveriesTransform()}

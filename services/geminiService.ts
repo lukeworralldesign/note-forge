@@ -50,6 +50,13 @@ export const getLocalEmbedding = async (text: string): Promise<number[] | null> 
   }
 };
 
+const VALID_CATEGORIES = [
+  "Idea", "Reference", "List", "Project", "Goal", 
+  "To-Do", "Urgent", "Work", "Personal", "Finance", 
+  "Health", "Tech", "Journal", "Meeting", "Travel", 
+  "Recipe", "Code", "Quote", "Review", "Archive"
+];
+
 const TAG_LIBRARY = `Work, Personal, Urgent, To-Do, Ideas, Goals, Project, Meeting, Finance, Health, Travel, Home, Shopping, Tech, Learning, Reference, Archive, Journal, Events, Family, Friends, Career, Education, Books, Movies, Music, Art, Design, Code, Marketing, Sales, Legal, Taxes, Bills, Recipes, Fitness, Meditation, Hobbies, Gaming, News, Politics, Science, History, Geography, Languages, DIY, Maintenance, Vehicles, Pets, Garden, Important, Later, Waiting, Research, Inspiration, Review, Draft, Final, Security`;
 
 const getContextPDF = (): string | null => {
@@ -88,15 +95,19 @@ export const processNoteWithAI = async (content: string, ragEnabled: boolean = f
       parts.push({ text: `Analyze the USER NOTE in the context of the attached PDF document.` });
     }
 
-    parts.push({ text: `CURRENT TIME: ${new Date().toLocaleString()}\nTAG LIBRARY: ${TAG_LIBRARY}\nUSER NOTE: "${content}"` });
+    parts.push({ text: `CURRENT TIME: ${new Date().toLocaleString()}\nALLOWED CATEGORIES: ${VALID_CATEGORIES.join(", ")}\nTAG LIBRARY: ${TAG_LIBRARY}\nUSER NOTE: "${content}"` });
 
     const response = await ai.models.generateContent({
       model: modelName,
       contents: { parts },
       config: {
         systemInstruction: `You are an automated Knowledge Engine Librarian. 
-        Analyze the note and provide metadata using the provided TAG LIBRARY.
+        Analyze the note and provide metadata.
         
+        CRITICAL RULE: You MUST categorize the note into EXACTLY ONE of the provided ALLOWED CATEGORIES. 
+        DO NOT invent new categories. If a note fits multiple, pick the most specific one. 
+        If it fits none, use 'Journal' for thoughts or 'Reference' for facts.
+
         ROUTING RULES:
         - Intent:
            'task': Actionable content (buy, call, finish, do, remind).
@@ -109,7 +120,10 @@ export const processNoteWithAI = async (content: string, ragEnabled: boolean = f
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            category: { type: Type.STRING },
+            category: { 
+              type: Type.STRING, 
+              description: `Must be exactly one of: ${VALID_CATEGORIES.join(", ")}` 
+            },
             headline: { type: Type.STRING },
             tags: { type: Type.ARRAY, items: { type: Type.STRING } },
             intent: { type: Type.STRING, description: "task, reference, or ephemeral" },
@@ -132,7 +146,7 @@ export const processNoteWithAI = async (content: string, ragEnabled: boolean = f
     const embedding = await embeddingPromise;
     const result = JSON.parse(response.text || '{}');
     return {
-      category: result.category || 'Thoughts',
+      category: result.category || 'Journal',
       headline: result.headline || 'New Entry',
       tags: result.tags || [],
       intent: result.intent || 'reference',

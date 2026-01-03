@@ -1,4 +1,3 @@
-
 const CACHE_NAME = 'note-forge-cache-v4';
 const ASSETS_TO_CACHE = [
   './',
@@ -12,6 +11,7 @@ const ASSETS_TO_CACHE = [
   './components/TheForge.tsx',
   './components/FidgetStar.tsx',
   './components/ContextManager.tsx',
+  './components/Reveries.tsx',
   './resources/icon-144x144.png',
   './resources/icon-192x192.png',
   './resources/icon-512x512.png',

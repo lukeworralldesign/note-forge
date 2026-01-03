@@ -7,7 +7,7 @@ import FidgetStar from './components/FidgetStar';
 import ContextManager from './components/ContextManager';
 import KeyVault from './components/KeyVault';
 import DataTransfer from './components/DataTransfer';
-import ActivityInsights from './components/ActivityInsights';
+import Reveries from './components/Reveries';
 // @ts-ignore
 import { create, insert, search, remove, update } from '@orama/orama';
 
@@ -47,7 +47,7 @@ const App: React.FC = () => {
   const [editContent, setEditContent] = useState('');
   const [editRagEnabled, setEditRagEnabled] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
-  const [showInsights, setShowInsights] = useState(false);
+  const [showReveries, setShowReveries] = useState(false);
   
   const [modelTier, setModelTier] = useState<ModelTier>(() => {
     const stored = localStorage.getItem('note_forge_model_tier') as ModelTier;
@@ -74,7 +74,7 @@ const App: React.FC = () => {
   const [wasSwipedOpen, setWasSwipedOpen] = useState(false); 
   const touchStartPos = useRef<{ x: number, y: number, time: number } | null>(null);
   const lastGestureEndTime = useRef<number>(0);
-  const swipeLockedOn = useRef<'insights' | 'overview' | 'pull' | null>(null);
+  const swipeLockedOn = useRef<'reveries' | 'overview' | 'pull' | null>(null);
   const screenWidth = useRef(window.innerWidth);
   const screenHeight = useRef(window.innerHeight);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -112,11 +112,11 @@ const App: React.FC = () => {
       
       if (absX > 15 && absX > absY * 1.5) {
         setIsSwiping(true);
-        if (showInsights) swipeLockedOn.current = 'insights';
+        if (showReveries) swipeLockedOn.current = 'reveries';
         else if (showOverview) swipeLockedOn.current = 'overview';
-        else swipeLockedOn.current = deltaX > 0 ? 'insights' : 'overview';
+        else swipeLockedOn.current = deltaX > 0 ? 'reveries' : 'overview';
       } 
-      else if (deltaY > 15 && absY > absX * 1.5 && currentScrollTop <= 2 && !showInsights && !showOverview) {
+      else if (deltaY > 15 && absY > absX * 1.5 && currentScrollTop <= 2 && !showReveries && !showOverview) {
         setIsSwiping(true);
         swipeLockedOn.current = 'pull';
       } else if (absY > 20) {
@@ -137,8 +137,8 @@ const App: React.FC = () => {
         const resistance = 0.4;
         setPullOffset(Math.min(pullDistance * resistance, maxStretch));
         if (e.cancelable) e.preventDefault();
-      } else if (swipeLockedOn.current === 'insights') {
-        setSwipeOffset(showInsights ? Math.min(0, deltaX) : Math.max(0, deltaX));
+      } else if (swipeLockedOn.current === 'reveries') {
+        setSwipeOffset(showReveries ? Math.min(0, deltaX) : Math.max(0, deltaX));
         if (e.cancelable) e.preventDefault();
       } else if (swipeLockedOn.current === 'overview') {
         setSwipeOffset(showOverview ? Math.max(0, deltaX) : Math.min(0, deltaX));
@@ -170,9 +170,9 @@ const App: React.FC = () => {
         } else {
             setPullOffset(0);
         }
-    } else if (showInsights && swipeLockedOn.current === 'insights') {
+    } else if (showReveries && swipeLockedOn.current === 'reveries') {
       if (deltaX < -threshold || (velocityX > velocityThreshold && deltaX < 0)) {
-        setShowInsights(false);
+        setShowReveries(false);
         actionTriggered = true;
       }
     } else if (showOverview && swipeLockedOn.current === 'overview') {
@@ -180,16 +180,16 @@ const App: React.FC = () => {
         setShowOverview(false);
         actionTriggered = true;
       }
-    } else if (!showInsights && !showOverview) {
+    } else if (!showReveries && !showOverview) {
       if (swipeLockedOn.current === 'overview' && deltaX < 0) {
         if (deltaX < -threshold || (velocityX > velocityThreshold)) {
           setWasSwipedOpen(true);
           setShowOverview(true);
           actionTriggered = true;
         }
-      } else if (swipeLockedOn.current === 'insights' && deltaX > 0) {
+      } else if (swipeLockedOn.current === 'reveries' && deltaX > 0) {
         if (deltaX > threshold || (velocityX > velocityThreshold)) {
-          setShowInsights(true);
+          setShowReveries(true);
           actionTriggered = true;
         }
       }
@@ -417,7 +417,7 @@ const App: React.FC = () => {
     setEditContent(note.content);
     setEditRagEnabled(note.ragEnabled);
     setShowOverview(false);
-    setShowInsights(false);
+    setShowReveries(false);
     if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -524,21 +524,13 @@ const App: React.FC = () => {
 
   const scrollToNote = (id: string) => {
     setShowOverview(false);
-    setShowInsights(false);
+    setShowReveries(false);
     setTimeout(() => {
       const el = document.getElementById(`note-${id}`);
       if (el && scrollContainerRef.current) {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }, 100);
-  };
-
-  const scrollToDate = (dateStr: string) => {
-    setShowInsights(false);
-    const targetNote = notes.find(n => new Date(n.timestamp).toISOString().split('T')[0] === dateStr);
-    if (targetNote) {
-      scrollToNote(targetNote.id);
-    }
   };
 
   const getFocusModeOverlayColor = (hex: string, alpha: number) => {
@@ -556,17 +548,25 @@ const App: React.FC = () => {
     return showOverview ? 'translateX(0)' : 'translateX(100%)';
   };
 
+  const getReveriesTransform = () => {
+    if (isSwiping && swipeLockedOn.current === 'reveries') {
+      if (showReveries) return `translateX(${Math.min(0, swipeOffset)}px)`;
+      else return `translateX(calc(-100% + ${Math.max(0, swipeOffset)}px))`;
+    }
+    return showReveries ? 'translateX(0)' : 'translateX(-100%)';
+  };
+
   const getBackdropOpacity = () => {
     const maxOpacity = 0.4;
     if (isSwiping) {
       const progress = Math.abs(swipeOffset) / screenWidth.current;
-      if (showOverview || showInsights) return Math.max(0, maxOpacity - (progress * maxOpacity));
+      if (showOverview || showReveries) return Math.max(0, maxOpacity - (progress * maxOpacity));
       else return Math.min(maxOpacity, progress * maxOpacity * 3);
     }
-    return (showOverview || showInsights) ? maxOpacity : 0;
+    return (showOverview || showReveries) ? maxOpacity : 0;
   };
 
-  const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || showInsights || isSwiping || isShareLaunch) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
+  const backgroundBlurClasses = `transition-all duration-400 ${(isFocusMode || showOverview || showReveries || isSwiping || isShareLaunch) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`;
 
   const pullProgress = Math.min(1, pullOffset / 80);
   const pullRotation = pullOffset * 2.5;
@@ -593,16 +593,17 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      <ActivityInsights 
+      <Reveries 
         notes={notes} 
         theme={theme} 
-        isOpen={showInsights} 
-        onClose={() => setShowInsights(false)} 
-        isSwiping={isSwiping && swipeLockedOn.current === 'insights'}
+        isOpen={showReveries} 
+        onClose={() => setShowReveries(false)} 
+        isSwiping={isSwiping && swipeLockedOn.current === 'reveries'}
         swipeOffset={swipeOffset}
-        onDateClick={scrollToDate}
+        onNoteClick={scrollToNote}
         getFocusModeOverlayColor={getFocusModeOverlayColor}
         backdropOpacity={getBackdropOpacity()}
+        transform={getReveriesTransform()}
       />
 
       <div 
@@ -628,7 +629,7 @@ const App: React.FC = () => {
             <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search notes..." className={`w-full ${theme.surface} h-16 pl-16 pr-8 rounded-[1.5rem] text-[#E3E2E6] placeholder-[#8E9099] focus:outline-none focus:ring-2 ${theme.focusRing} transition-all shadow-lg border border-white/5`} />
           </div>
 
-          <div className={`transition-all duration-400 ${(showOverview || showInsights || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
+          <div className={`transition-all duration-400 ${(showOverview || showReveries || isSwiping) ? 'opacity-10 blur-sm pointer-events-none' : 'opacity-100'}`}>
              <TheForge 
                 onSave={handleNoteSave} 
                 theme={theme} 
